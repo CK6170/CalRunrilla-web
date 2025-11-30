@@ -61,12 +61,34 @@ if (-not $RemoteUrl -or $RemoteUrl -eq '') {
 # Add files and commit
 Write-Host "Adding files and committing with message:`n  $CommitMessage"
 if (Invoke-GitCommand @('add','--all') -ne 0) { Write-Error 'git add failed'; exit 1 }
+
 # Check if there's anything to commit
 $changes = (& git status --porcelain)
 if (-not $changes) {
     Write-Host 'No changes to commit.'
 } else {
-    if (Invoke-GitCommand @('commit','-m',$CommitMessage) -ne 0) { Write-Error 'git commit failed'; exit 1 }
+    # Try commit and capture output to give a helpful message on failure
+    Write-Host "> git commit -m \"$CommitMessage\""
+    $commitOutput = & git commit -m "$CommitMessage" 2>&1
+    $commitCode = $LASTEXITCODE
+    if ($commitCode -ne 0) {
+        Write-Host $commitOutput
+        # Detect missing user identity error and set a temporary local identity, then retry
+        if ($commitOutput -match 'Please tell me who you are' -or $commitOutput -match 'user.name' -or $commitOutput -match 'user.email') {
+            Write-Host 'git user.name/user.email not configured. Setting a temporary local identity and retrying commit.'
+            if (Invoke-GitCommand @('config','user.name','CalRunrillaScript') -ne 0) { Write-Error 'failed to set git user.name'; exit 1 }
+            if (Invoke-GitCommand @('config','user.email','calrunrilla@example.com') -ne 0) { Write-Error 'failed to set git user.email'; exit 1 }
+            $commitOutput = & git commit -m "$CommitMessage" 2>&1
+            $commitCode = $LASTEXITCODE
+            if ($commitCode -ne 0) {
+                Write-Error "git commit failed after setting local identity:`n$commitOutput"
+                exit 1
+            }
+        } else {
+            Write-Error "git commit failed:`n$commitOutput"
+            exit 1
+        }
+    }
 }
 
 # Check if remote already exists
