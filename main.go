@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	matrix "github.com/CK6170/Calrunrilla-go/matrix"
+	serialpkg "github.com/CK6170/Calrunrilla-go/serial"
 	"github.com/tarm/serial"
 )
 
@@ -301,7 +303,7 @@ func calRunrilla(args0 string, barsPerRow int) {
 	}
 
 	debugPrintf(parameters.DEBUG, "Opening Leo485 with port %s...\n", parameters.SERIAL.PORT)
-	bars := NewLeo485(parameters.SERIAL, parameters.BARS)
+	bars := serialpkg.NewLeo485(parameters.SERIAL, parameters.BARS)
 	defer func() { _ = bars.Close() }()
 
 	// Quick version probe; if fails, try auto-detect fallback (in case wrong but openable port)
@@ -367,14 +369,14 @@ func calRunrilla(args0 string, barsPerRow int) {
 		}
 	}
 	// Show matrices only when DEBUG flag is on
-	var add *Matrix
-	var w *Vector
+	var add *matrix.Matrix
+	var w *matrix.Vector
 	if parameters.DEBUG {
 		printMatrix(ad0, "Zero Matrix (ad0)")
 		printMatrix(adv, "Weight Matrix (adv)")
 		add = adv.Sub(ad0)
 		printMatrix(add, "Difference Matrix (adv - ad0)")
-		w = NewVectorWithValue(adv.Rows, float64(parameters.WEIGHT))
+		w = matrix.NewVectorWithValue(adv.Rows, float64(parameters.WEIGHT))
 		printVector(w, "Load Vector (W)")
 	}
 
@@ -490,7 +492,7 @@ func nextFlashAction() rune {
 	}
 }
 
-func zeroCalibration(bars *Leo485, parameters *PARAMETERS) *Matrix {
+func zeroCalibration(bars *serialpkg.Leo485, parameters *PARAMETERS) *matrix.Matrix {
 	ads, ok := showADCLabel(bars, zeromsg, "[ZERO]")
 	if !ok {
 		log.Fatal("Process cancelled")
@@ -505,7 +507,7 @@ func weightCalibration(bars *Leo485, parameters *PARAMETERS) *Matrix {
 	nbars := len(parameters.BARS)
 	nloads := 3 * (nbars - 1) * nlcs
 	nbars *= nlcs
-	adv := NewMatrix(nloads, nbars)
+	adv := matrix.NewMatrix(nloads, nbars)
 
 	for j := 0; j < nloads; j++ {
 		adv = weightCalibrationSingle(bars, parameters, adv, j)
@@ -513,7 +515,7 @@ func weightCalibration(bars *Leo485, parameters *PARAMETERS) *Matrix {
 	return adv
 }
 
-func weightCalibrationSingle(bars *Leo485, parameters *PARAMETERS, adv *Matrix, index int) *Matrix {
+func weightCalibrationSingle(bars *serialpkg.Leo485, parameters *PARAMETERS, adv *matrix.Matrix, index int) *matrix.Matrix {
 	sb := fmt.Sprintf(calibmsg, parameters.WEIGHT, (BAY)(index/6), (LMR)((index/2)%3), (FB)(index%2))
 	// Label as running index (left side): [0001], [0002], ...
 	lbl := fmt.Sprintf("[%04d]", index+1)
@@ -528,22 +530,22 @@ func weightCalibrationSingle(bars *Leo485, parameters *PARAMETERS, adv *Matrix, 
 
 // indexTitle unused; kept for reference
 
-func updateMatrixZero(ads []int64, calibs, nlcs int) *Matrix {
-	ad := NewVector(len(ads))
+func updateMatrixZero(ads []int64, calibs, nlcs int) *matrix.Matrix {
+	ad := matrix.NewVector(len(ads))
 	for i, v := range ads {
 		ad.Values[i] = float64(v)
 	}
 
 	// Suppress extra right-side marker in batch output
 	nbars := len(ads) / nlcs
-	ad0 := NewMatrix(calibs*nlcs, nbars*nlcs)
+	ad0 := matrix.NewMatrix(calibs*nlcs, nbars*nlcs)
 	for i := 0; i < calibs*nlcs; i++ {
 		ad0.SetRow(i, ad)
 	}
 	return ad0
 }
 
-func updateMatrixUpdate(adc *Matrix, ads []int64, index, nlcs int) *Matrix {
+func updateMatrixUpdate(adc *matrix.Matrix, ads []int64, index, nlcs int) *matrix.Matrix {
 	// Suppress extra right-side stage number; left side shows it via interactive label
 	nbars := len(ads) / nlcs
 	for j := 0; j < nbars; j++ {
@@ -555,7 +557,7 @@ func updateMatrixUpdate(adc *Matrix, ads []int64, index, nlcs int) *Matrix {
 	return adc
 }
 
-func showADCLabel(bars *Leo485, message string, finalLabel string) ([]int64, bool) {
+func showADCLabel(bars *serialpkg.Leo485, message string, finalLabel string) ([]int64, bool) {
 	// Green instruction line
 	fmt.Printf("\033[32m%s\033[0m\n", message)
 	return manipulateADC(bars, finalLabel)
@@ -669,7 +671,7 @@ func manipulateADC(bars *Leo485, finalLabel string) ([]int64, bool) {
 	}
 }
 
-func printLiveLine(bars *Leo485, currentSample [][]int64) {
+func printLiveLine(bars *serialpkg.Leo485, currentSample [][]int64) {
 	line := "\r[LIVE] "
 	for i := range bars.Bars {
 		if i < len(currentSample) && len(currentSample[i]) >= 2 {
@@ -680,7 +682,7 @@ func printLiveLine(bars *Leo485, currentSample [][]int64) {
 	fmt.Print(line)
 }
 
-func printIgnoringLine(bars *Leo485, currentSample [][]int64, counter, target int) {
+func printIgnoringLine(bars *serialpkg.Leo485, currentSample [][]int64, counter, target int) {
 	// Light purple entire line (live ignoring phase inside interactive calibration)
 	line := fmt.Sprintf("\r\033[95m[IGN %04d] ", counter)
 	for i := range bars.Bars {
@@ -692,7 +694,7 @@ func printIgnoringLine(bars *Leo485, currentSample [][]int64, counter, target in
 	fmt.Print(line)
 }
 
-func printAveragingLine(bars *Leo485, currentSample [][]int64, counter, target int) {
+func printAveragingLine(bars *serialpkg.Leo485, currentSample [][]int64, counter, target int) {
 	// Light blue entire line (averaging phase inside interactive calibration)
 	line := fmt.Sprintf("\r\033[96m[AVG %04d] ", counter)
 	for i := range bars.Bars {
@@ -704,7 +706,7 @@ func printAveragingLine(bars *Leo485, currentSample [][]int64, counter, target i
 	fmt.Print(line)
 }
 
-func printFinalLine(bars *Leo485, finalAverages [][]int64, label string) {
+func printFinalLine(bars *serialpkg.Leo485, finalAverages [][]int64, label string) {
 	// Dark blue entire line with provided label
 	line := "\r\033[34m" + label + " "
 	for i := range bars.Bars {
@@ -743,7 +745,7 @@ func calculateFinalAverages(samples [][][]int64, nlcs int) [][]int64 {
 }
 
 // printMatrix dumps the full matrix (may be large). For debugging only.
-func printMatrix(m *Matrix, title string) {
+func printMatrix(m *matrix.Matrix, title string) {
 	// Yellow for debug matrices
 	if lastParameters != nil && lastParameters.DEBUG {
 		fmt.Print("\033[33m")
@@ -779,7 +781,7 @@ func printMatrix(m *Matrix, title string) {
 }
 
 // printVector dumps a trimmed view of a vector for debugging
-func printVector(v *Vector, title string) {
+func printVector(v *matrix.Vector, title string) {
 	if lastParameters != nil && lastParameters.DEBUG {
 		fmt.Print("\033[33m")
 	}
@@ -908,10 +910,10 @@ func printVector(v *Vector, title string) {
 		fmt.Println()
 	}
 */
-func calcZerosFactors(adv, ad0 *Matrix, parameters *PARAMETERS) string {
+func calcZerosFactors(adv, ad0 *matrix.Matrix, parameters *PARAMETERS) string {
 	debug := "\n"
 	add := adv.Sub(ad0)
-	w := NewVectorWithValue(adv.Rows, float64(parameters.WEIGHT))
+	w := matrix.NewVectorWithValue(adv.Rows, float64(parameters.WEIGHT))
 	adi := add.InverseSVD()
 	if adi == nil {
 		log.Fatal("SVD failed; cannot compute pseudoinverse")
@@ -962,7 +964,7 @@ func calcZerosFactors(adv, ad0 *Matrix, parameters *PARAMETERS) string {
 			lc := &LC{
 				ZERO:   uint64(zeros.Values[index]),
 				FACTOR: float32(factors.Values[index]),
-				IEEE:   fmt.Sprintf("%08X", ToIEEE754(float32(factors.Values[index]))),
+				IEEE:   fmt.Sprintf("%08X", matrix.ToIEEE754(float32(factors.Values[index]))),
 			}
 			parameters.BARS[i].LC[j] = lc
 		}
