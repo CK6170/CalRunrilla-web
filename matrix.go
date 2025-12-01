@@ -134,7 +134,7 @@ func (m *Matrix) ToStrings(title, format string) (string, string) {
 	sb.WriteString(title + "\n")
 	for i := range m.Values {
 		for j := range m.Values[i] {
-			sb.WriteString(fmt.Sprintf("%10.0f", m.Values[i][j]))
+			fmt.Fprintf(sb, "%10.0f", m.Values[i][j])
 		}
 		sb.WriteString("\n")
 	}

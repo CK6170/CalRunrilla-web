@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -37,6 +36,13 @@ func debugPrintf(enabled bool, format string, a ...interface{}) {
 // greenPrintf prints a light-green formatted line (always shown)
 func greenPrintf(format string, a ...interface{}) {
 	fmt.Print("\033[92m")
+	fmt.Printf(format, a...)
+	fmt.Print("\033[0m")
+}
+
+// warningPrintf prints a yellow/orange formatted warning line (always shown)
+func warningPrintf(format string, a ...interface{}) {
+	fmt.Print("\033[93m") // Bright yellow for warnings
 	fmt.Printf(format, a...)
 	fmt.Print("\033[0m")
 }
@@ -222,7 +228,7 @@ func main() {
 		clearScreen()
 		// Print application banner after clearing the screen so it remains visible
 		greenPrintf("Runrilla Calibration version: %s [build %s]\n", AppVersion, AppBuild)
-		fmt.Println("--------------------------------------------")
+		greenPrintf("--------------------------------------------\n")
 		barsPerRow := calcBarsPerRow(getTerminalWidth())
 
 		calRunrilla(configPath, barsPerRow)
@@ -280,7 +286,7 @@ func calRunrilla(args0 string, barsPerRow int) {
 			log.Printf("Port %s open failed (%v), attempting auto-detect...\n", parameters.SERIAL.PORT, err)
 			needDetect = true
 		} else {
-			sp.Close()
+			_ = sp.Close()
 		}
 	}
 	if needDetect {
@@ -296,7 +302,7 @@ func calRunrilla(args0 string, barsPerRow int) {
 
 	debugPrintf(parameters.DEBUG, "Opening Leo485 with port %s...\n", parameters.SERIAL.PORT)
 	bars := NewLeo485(parameters.SERIAL, parameters.BARS)
-	defer bars.Close()
+	defer func() { _ = bars.Close() }()
 
 	// Quick version probe; if fails, try auto-detect fallback (in case wrong but openable port)
 	debugPrintf(parameters.DEBUG, "Probing device version...\n")
@@ -319,14 +325,14 @@ func calRunrilla(args0 string, barsPerRow int) {
 			greenPrintf("Version response received after reboot\n")
 		} else {
 			log.Printf("No version response from %s after reboot, re-attempting auto-detect...\n", parameters.SERIAL.PORT)
-			bars.Close()
+			_ = bars.Close()
 			p := autoDetectPort(&parameters)
 			if p != "" && p != parameters.SERIAL.PORT {
 				parameters.SERIAL.PORT = p
 				persistParameters(args0, &parameters)
 				debugPrintf(parameters.DEBUG, "Updated serial port after probe: %s (saved)\n", p)
 				bars = NewLeo485(parameters.SERIAL, parameters.BARS)
-				defer bars.Close()
+				defer func() { _ = bars.Close() }()
 			}
 		}
 	}
@@ -334,9 +340,8 @@ func calRunrilla(args0 string, barsPerRow int) {
 	// Full version validation (will continue even if minor mismatch)
 	if !checkVersion(bars, &parameters) {
 		// Version check failed but continue
-	}
-
-	// Zero Calibration
+		warningPrintf("Warning: version check failed, continuing anyway\n")
+	} // Zero Calibration
 	debugPrintf(parameters.DEBUG, "Starting zero calibration...\n")
 	ad0 := zeroCalibration(bars, &parameters)
 
@@ -485,23 +490,6 @@ func nextFlashAction() rune {
 	}
 }
 
-func next(message string, nextKey rune) bool {
-	fmt.Println(message)
-	reader := bufio.NewReader(os.Stdin)
-	for {
-		char, _, err := reader.ReadRune()
-		if err != nil {
-			return false
-		}
-		if char == nextKey {
-			return true
-		}
-		if char == 27 { // ESC
-			return false
-		}
-	}
-}
-
 func zeroCalibration(bars *Leo485, parameters *PARAMETERS) *Matrix {
 	ads, ok := showADCLabel(bars, zeromsg, "[ZERO]")
 	if !ok {
@@ -571,11 +559,6 @@ func showADCLabel(bars *Leo485, message string, finalLabel string) ([]int64, boo
 	// Green instruction line
 	fmt.Printf("\033[32m%s\033[0m\n", message)
 	return manipulateADC(bars, finalLabel)
-}
-
-func showADC(bars *Leo485, message string) ([]int64, bool) {
-	// default label when unspecified
-	return showADCLabel(bars, message, "[ZERO]")
 }
 
 func manipulateADC(bars *Leo485, finalLabel string) ([]int64, bool) {
@@ -818,112 +801,113 @@ func printVector(v *Vector, title string) {
 	}
 }
 
-func printAveragedLine(bars *Leo485, samples [][][]int64) {
-	// Build complete line with averaged data
-	line := "\r[Live-AVG] "
+/*
+	func printAveragedLine(bars *Leo485, samples [][][]int64) {
+		// Build complete line with averaged data
+		line := "\r[Live-AVG] "
 
-	for i := range bars.Bars {
-		if len(samples[i]) > 0 {
-			// Calculate averages for this bar
-			var sum1, sum2 int64
-			count := len(samples[i])
+		for i := range bars.Bars {
+			if len(samples[i]) > 0 {
+				// Calculate averages for this bar
+				var sum1, sum2 int64
+				count := len(samples[i])
 
-			for _, sample := range samples[i] {
-				if len(sample) >= 2 {
-					sum1 += sample[0]
-					sum2 += sample[1]
+				for _, sample := range samples[i] {
+					if len(sample) >= 2 {
+						sum1 += sample[0]
+						sum2 += sample[1]
+					}
+				}
+
+				avg1 := sum1 / int64(count)
+				avg2 := sum2 / int64(count)
+
+				line += fmt.Sprintf("(%02d):%010d/%010d  ", i+1, avg1, avg2)
+			} else {
+				line += fmt.Sprintf("(%02d):0000000000/0000000000  ", i+1)
+			}
+		}
+
+		// Add padding to clear any leftover characters
+		line += "                    "
+
+		fmt.Print(line)
+	}
+
+	func printSingleLine(bars *Leo485) {
+		// Build complete line with all data
+		line := "\r[Live] "
+
+		for i := range bars.Bars {
+			bruts, err := bars.GetADs(i)
+			val1 := int64(0)
+			val2 := int64(0)
+
+			if err == nil {
+				if len(bruts) > 0 {
+					val1 = int64(bruts[0])
+				}
+				if len(bruts) > 1 {
+					val2 = int64(bruts[1])
 				}
 			}
 
-			avg1 := sum1 / int64(count)
-			avg2 := sum2 / int64(count)
-
-			line += fmt.Sprintf("(%02d):%010d/%010d  ", i+1, avg1, avg2)
-		} else {
-			line += fmt.Sprintf("(%02d):0000000000/0000000000  ", i+1)
+			line += fmt.Sprintf("(%02d):%010d/%010d  ", i+1, val1, val2)
 		}
+
+		// Add padding to clear any leftover characters
+		line += "                    "
+
+		fmt.Print(line)
 	}
 
-	// Add padding to clear any leftover characters
-	line += "                    "
+	func getCurrentValues(bars *Leo485) [][]int64 {
+		values := make([][]int64, len(bars.Bars))
+		for i := range bars.Bars {
+			bruts, err := bars.GetADs(i)
+			if err == nil && len(bruts) >= 2 {
+				values[i] = []int64{int64(bruts[0]), int64(bruts[1])}
+			} else {
+				values[i] = []int64{0, 0}
+			}
+		}
+		return values
+	}
 
-	fmt.Print(line)
-}
+	func clearAndShowData(bars *Leo485) {
+		// Clear screen using Windows cls command
+		fmt.Print("\033[2J\033[H")
 
-func printSingleLine(bars *Leo485) {
-	// Build complete line with all data
-	line := "\r[Live] "
+		// Print header
+		fmt.Println("Clear the Bay(s) and Press 'C' to continue. Or <ESC> to exit.")
+		fmt.Println()
 
-	for i := range bars.Bars {
-		bruts, err := bars.GetADs(i)
-		val1 := int64(0)
-		val2 := int64(0)
-
-		if err == nil {
-			if len(bruts) > 0 {
+		// Print live data in two-line format
+		// First line
+		fmt.Printf("[Live]")
+		for i := range bars.Bars {
+			bruts, err := bars.GetADs(i)
+			val1 := int64(0)
+			if err == nil && len(bruts) > 0 {
 				val1 = int64(bruts[0])
 			}
-			if len(bruts) > 1 {
+			fmt.Printf("(%02d):[1]%010d   ", i+1, val1)
+		}
+		fmt.Println()
+
+		// Second line
+		fmt.Printf("           ")
+		for i := range bars.Bars {
+			bruts, err := bars.GetADs(i)
+			val2 := int64(0)
+			if err == nil && len(bruts) > 1 {
 				val2 = int64(bruts[1])
 			}
+			fmt.Printf("[2]%010d        ", val2)
 		}
-
-		line += fmt.Sprintf("(%02d):%010d/%010d  ", i+1, val1, val2)
+		fmt.Println()
 	}
-
-	// Add padding to clear any leftover characters
-	line += "                    "
-
-	fmt.Print(line)
-}
-
-func getCurrentValues(bars *Leo485) [][]int64 {
-	values := make([][]int64, len(bars.Bars))
-	for i := range bars.Bars {
-		bruts, err := bars.GetADs(i)
-		if err == nil && len(bruts) >= 2 {
-			values[i] = []int64{int64(bruts[0]), int64(bruts[1])}
-		} else {
-			values[i] = []int64{0, 0}
-		}
-	}
-	return values
-}
-
-func clearAndShowData(bars *Leo485) {
-	// Clear screen using Windows cls command
-	fmt.Print("\033[2J\033[H")
-
-	// Print header
-	fmt.Println("Clear the Bay(s) and Press 'C' to continue. Or <ESC> to exit.")
-	fmt.Println()
-
-	// Print live data in two-line format
-	// First line
-	fmt.Printf("[Live]")
-	for i := range bars.Bars {
-		bruts, err := bars.GetADs(i)
-		val1 := int64(0)
-		if err == nil && len(bruts) > 0 {
-			val1 = int64(bruts[0])
-		}
-		fmt.Printf("(%02d):[1]%010d   ", i+1, val1)
-	}
-	fmt.Println()
-
-	// Second line
-	fmt.Printf("           ")
-	for i := range bars.Bars {
-		bruts, err := bars.GetADs(i)
-		val2 := int64(0)
-		if err == nil && len(bruts) > 1 {
-			val2 = int64(bruts[1])
-		}
-		fmt.Printf("[2]%010d        ", val2)
-	}
-	fmt.Println()
-}
-
+*/
 func calcZerosFactors(adv, ad0 *Matrix, parameters *PARAMETERS) string {
 	debug := "\n"
 	add := adv.Sub(ad0)
@@ -1021,7 +1005,10 @@ func saveToJSON(file string, parameters *PARAMETERS) {
 		BARS:   parameters.BARS,
 	}
 	data, _ := json.MarshalIndent(sentinel, "", "  ")
-	os.WriteFile(file, data, 0644)
+	if err := os.WriteFile(file, data, 0644); err != nil {
+		warningPrintf("Warning: failed to write JSON file: %v\n", err)
+		return
+	}
 	greenPrintf("%s Saved\n", file)
 
 	// Also write a small adjacent version file so the app version is recorded
@@ -1029,16 +1016,21 @@ func saveToJSON(file string, parameters *PARAMETERS) {
 	verFile := strings.TrimSuffix(file, ".json") + ".version"
 	// Write version file as two tokens so CI/builds can inject numeric values
 	verContent := fmt.Sprintf("%s %s\n", AppVersion, AppBuild)
-	_ = os.WriteFile(verFile, []byte(verContent), 0644)
+	if err := os.WriteFile(verFile, []byte(verContent), 0644); err != nil {
+		warningPrintf("Warning: failed to write version file: %v\n", err)
+	}
 }
 
 func appendToFile(file, content string) {
 	f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
+		warningPrintf("Warning: failed to open file for append: %v\n", err)
 		return
 	}
-	defer f.Close()
-	f.WriteString(content + "\n")
+	defer func() { _ = f.Close() }()
+	if _, err := f.WriteString(content + "\n"); err != nil {
+		warningPrintf("Warning: failed to write to file: %v\n", err)
+	}
 }
 
 func flashParameters(bars *Leo485, parameters *PARAMETERS) error {
@@ -1128,7 +1120,7 @@ func flashParameters(bars *Leo485, parameters *PARAMETERS) error {
 		}
 		if zeravg < 0 {
 			zeravg = 0
-			fmt.Println("Avg. Zero reference is negative")
+			warningPrintf("Avg. Zero reference is negative\n")
 		}
 		greenPrintf(" Flashing Zeros:\n")
 		// Attempt to write zeros with retries and debug logging
@@ -1209,10 +1201,15 @@ func flashParameters(bars *Leo485, parameters *PARAMETERS) error {
 }
 
 func checkVersion(bars *Leo485, parameters *PARAMETERS) bool {
-	// Expected values (can be made configurable later)
-	expectedID := 12009
-	expectedMajor := 1
-	expectedMinor := 202
+	// If no VERSION section in JSON, skip validation and just discover current version
+	if parameters.VERSION == nil {
+		parameters.VERSION = &VERSION{}
+	}
+
+	// Get expected values from JSON configuration (0 means not specified)
+	expectedID := parameters.VERSION.ID
+	expectedMajor := parameters.VERSION.MAJOR
+	expectedMinor := parameters.VERSION.MINOR
 
 	var firstID, firstMajor, firstMinor int
 	anyError := false
@@ -1226,17 +1223,22 @@ func checkVersion(bars *Leo485, parameters *PARAMETERS) bool {
 		}
 
 		// Print discovered version info with coloring for clarity
-		if id != expectedID {
+		if expectedID != 0 && id != expectedID {
 			log.Printf("\033[31mBar %d: Unexpected Version ID %d (expected %d)\033[0m", i+1, id, expectedID)
 			anyError = true
-		} else if major != expectedMajor {
-			log.Printf("\033[33mBar %d: Version major %d (expected %d)\033[0m", i+1, major, expectedMajor)
+		} else if expectedMajor != 0 && major != expectedMajor {
+			greenPrintf("Bar %d: Version major %d (expected %d)\n", i+1, major, expectedMajor)
 			// non-fatal
-		} else if minor != expectedMinor {
-			log.Printf("\033[33mBar %d: Version minor %d (expected %d)\033[0m", i+1, minor, expectedMinor)
+		} else if expectedMinor != 0 && minor != expectedMinor {
+			greenPrintf("Bar %d: Version minor %d (expected %d)\n", i+1, minor, expectedMinor)
 			// non-fatal
 		} else {
-			greenPrintf("Bar %d: Version OK (ID=%d %d.%d)\n", i+1, id, major, minor)
+			if expectedID == 0 && expectedMajor == 0 && expectedMinor == 0 {
+				// No expectations set, just show discovered version
+				greenPrintf("Bar %d: Version discovered (ID=%d %d.%d)\n", i+1, id, major, minor)
+			} else {
+				greenPrintf("Bar %d: Version OK (ID=%d %d.%d)\n", i+1, id, major, minor)
+			}
 		}
 
 		if firstID == 0 {
@@ -1328,7 +1330,8 @@ func testPort(name string, barID int, baud int) bool {
 	if err != nil {
 		return false
 	}
-	defer sp.Close()
+	defer func() { _ = sp.Close() }()
+
 	cmd := GetCommand(barID, []byte("V"))
 	resp, err := getData(sp, cmd, 200)
 	if err != nil {

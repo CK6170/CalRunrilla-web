@@ -51,7 +51,7 @@ func (v *Vector) ToStrings(title, format string) (string, string) {
 		fmtStr = format
 	}
 	for i, val := range v.Values {
-		sb.WriteString(fmt.Sprintf(fmtStr+"\n", val))
+		fmt.Fprintf(sb, fmtStr+"\n", val)
 		_ = i // keep index available if needed for future formatting
 	}
 	sb.WriteString(matrixline)

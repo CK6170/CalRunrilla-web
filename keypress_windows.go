@@ -3,6 +3,7 @@
 package main
 
 import (
+	"fmt"
 	"sync"
 	"syscall"
 	"time"
@@ -63,13 +64,15 @@ func consoleSetRaw() (orig uint32, err error) {
 	}
 	orig = mode
 	newMode := mode &^ (enableLineInput | enableEchoInput)
-	procSetConsoleMode.Call(handle, uintptr(newMode))
+	if r, _, _ := procSetConsoleMode.Call(handle, uintptr(newMode)); r == 0 {
+		return 0, fmt.Errorf("SetConsoleMode failed")
+	}
 	return orig, nil
 }
 
 func consoleRestore(mode uint32) {
 	handle, _, _ := procGetStdHandle.Call(stdInputHandle)
-	procSetConsoleMode.Call(handle, uintptr(mode))
+	procSetConsoleMode.Call(handle, uintptr(mode)) //nolint:errcheck // Best effort restore
 }
 
 var (

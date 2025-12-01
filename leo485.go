@@ -50,8 +50,8 @@ func (l *Leo485) Open() error {
 	return nil // Already opened
 }
 
-func (l *Leo485) Close() {
-	l.Serial.Close()
+func (l *Leo485) Close() error {
+	return l.Serial.Close()
 }
 
 func (l *Leo485) GetADs(index int) ([]uint64, error) {
@@ -275,7 +275,7 @@ func checkData(input []byte, cmd []byte) (string, error) {
 	if len(sinput) < 5 {
 		return "", fmt.Errorf("short response")
 	}
-	if !(len(sinput) > 2 && sinput[:2] == string(cmd[:2]) && sinput[2] == '|') {
+	if len(sinput) <= 2 || sinput[:2] != string(cmd[:2]) || sinput[2] != '|' {
 		return "", fmt.Errorf("wrong ID or missing pipe")
 	}
 	// Accept CRLF or LF-only line endings

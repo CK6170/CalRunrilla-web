@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/binary"
-	"unsafe"
 )
 
 func GetCommand(id int, command []byte) []byte {
@@ -30,10 +29,4 @@ func crc16(data []byte) []byte {
 	binary.BigEndian.PutUint16(buf, cs)
 	// Always use big-endian order for CRC
 	return buf
-}
-
-func isLittleEndian() bool {
-	var i uint16 = 1
-	b := (*[2]byte)(unsafe.Pointer(&i))
-	return b[0] == 1
 }
