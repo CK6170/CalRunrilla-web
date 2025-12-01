@@ -12,7 +12,9 @@ import (
 	"time"
 
 	matrix "github.com/CK6170/Calrunrilla-go/matrix"
+	models "github.com/CK6170/Calrunrilla-go/models"
 	serialpkg "github.com/CK6170/Calrunrilla-go/serial"
+	ui "github.com/CK6170/Calrunrilla-go/ui"
 	"github.com/tarm/serial"
 )
 
@@ -59,119 +61,26 @@ const (
 // Raw single-key input (Windows & other OS) using golang.org/x/term
 // We switch stdin to raw mode and read bytes directly without needing Enter.
 
-type LMR int
+// Enums LMR, FB and BAY are provided by the `models` package. We removed
+// the local declarations to avoid redeclaration errors and use aliases below.
 
-const (
-	LEFT LMR = iota
-	MIDDLE
-	RIGHT
-)
+// Use canonical models from the `models` package. These type aliases keep the
+// rest of the code using the short names (e.g., PARAMETERS, BAR) while pointing
+// at the exported types in the models package.
+type PARAMETERS = models.PARAMETERS
+type SENTINEL = models.SENTINEL
+type VERSION = models.VERSION
+type SERIAL = models.SERIAL
+type BAR = models.BAR
+type LC = models.LC
 
-func (l LMR) String() string {
-	switch l {
-	case LEFT:
-		return "LEFT"
-	case MIDDLE:
-		return "MIDDLE"
-	case RIGHT:
-		return "RIGHT"
-	default:
-		return fmt.Sprintf("LMR(%d)", int(l))
-	}
-}
-
-type FB int
-
-const (
-	FRONT FB = iota
-	BACK
-)
-
-func (f FB) String() string {
-	switch f {
-	case FRONT:
-		return "FRONT"
-	case BACK:
-		return "BACK"
-	default:
-		return fmt.Sprintf("FB(%d)", int(f))
-	}
-}
-
-type BAY int
-
-const (
-	FIRST BAY = iota
-	SECOND
-	THIRD
-	FOURTH
-	FIFTH
-	SIXTH
-	SEVENTH
-	EIGHTH
-)
-
-func (b BAY) String() string {
-	switch b {
-	case FIRST:
-		return "FIRST"
-	case SECOND:
-		return "SECOND"
-	case THIRD:
-		return "THIRD"
-	case FOURTH:
-		return "FOURTH"
-	case FIFTH:
-		return "FIFTH"
-	case SIXTH:
-		return "SIXTH"
-	case SEVENTH:
-		return "SEVENTH"
-	case EIGHTH:
-		return "EIGHTH"
-	default:
-		return fmt.Sprintf("BAY(%d)", int(b))
-	}
-}
-
-type PARAMETERS struct {
-	SERIAL  *SERIAL  `json:"SERIAL"`
-	VERSION *VERSION `json:"VERSION,omitempty"`
-	WEIGHT  int      `json:"WEIGHT"`
-	AVG     int      `json:"AVG"`              // number of samples to average
-	IGNORE  int      `json:"IGNORE,omitempty"` // number of samples to ignore first
-	DEBUG   bool     `json:"DEBUG"`
-	BARS    []*BAR   `json:"BARS"`
-}
-
-type SENTINEL struct {
-	SERIAL *SERIAL `json:"SERIAL"`
-	BARS   []*BAR  `json:"BARS"`
-}
-
-type VERSION struct {
-	ID    int `json:"ID"`
-	MAJOR int `json:"MAJOR"`
-	MINOR int `json:"MINOR"`
-}
-
-type SERIAL struct {
-	PORT     string `json:"PORT"`
-	BAUDRATE int    `json:"BAUDRATE"`
-	COMMAND  string `json:"COMMAND"`
-}
-
-type BAR struct {
-	ID  int   `json:"ID"`
-	LCS byte  `json:"LCS"`
-	LC  []*LC `json:"LC,omitempty"`
-}
-
-type LC struct {
-	ZERO   uint64  `json:"ZERO"`
-	FACTOR float32 `json:"FACTOR"`
-	IEEE   string  `json:"IEEE"`
-}
+// Aliases for enums and math/serial types so existing signatures remain valid.
+type LMR = models.LMR
+type FB = models.FB
+type BAY = models.BAY
+type Matrix = matrix.Matrix
+type Vector = matrix.Vector
+type Leo485 = serialpkg.Leo485
 
 var (
 	calibmsg       = "\nPut %d on the %s Bay on the %s side in the %s of the Shelf and Press 'C' to continue. Or <ESC> to exit."
@@ -179,6 +88,14 @@ var (
 	lastParameters *PARAMETERS // store parsed parameters for dynamic targets
 	immediateRetry bool
 )
+
+// Backwards-compatible aliases: many call sites in main.go use unqualified
+// function names (from the pre-refactor single-file layout). Provide thin
+// aliases that point to the exported package implementations so we can keep
+// the rest of the code unchanged while migrating gradually.
+// NOTE: we intentionally avoid creating global aliases here. Instead the
+// following file uses package-qualified names (serialpkg.*, matrix.*) so the
+// concrete source of each function/type is unambiguous during migration.
 
 // App version variables. Set these at build time with -ldflags if desired.
 var (
@@ -333,7 +250,7 @@ func calRunrilla(args0 string, barsPerRow int) {
 				parameters.SERIAL.PORT = p
 				persistParameters(args0, &parameters)
 				debugPrintf(parameters.DEBUG, "Updated serial port after probe: %s (saved)\n", p)
-				bars = NewLeo485(parameters.SERIAL, parameters.BARS)
+				bars = serialpkg.NewLeo485(parameters.SERIAL, parameters.BARS)
 				defer func() { _ = bars.Close() }()
 			}
 		}
@@ -357,8 +274,8 @@ func calRunrilla(args0 string, barsPerRow int) {
 	// Prompt user to clear all bays before computing factors/matrices.
 	greenPrintf("Clear all the bays and Press 'C' to continue. Or <ESC> to exit.\n")
 	// Wait for single-key 'C' or ESC
-	DrainKeys()
-	keyEventsPrompt := StartKeyEvents()
+	ui.DrainKeys()
+	keyEventsPrompt := ui.StartKeyEvents()
 	for {
 		k := <-keyEventsPrompt
 		if k == 27 { // ESC
@@ -434,8 +351,8 @@ func calRunrilla(args0 string, barsPerRow int) {
 func nextYN(message string) rune {
 	// Print message in green
 	fmt.Printf("\033[32m%s\033[0m\n", message)
-	DrainKeys()
-	keyEvents := StartKeyEvents()
+	ui.DrainKeys()
+	keyEvents := ui.StartKeyEvents()
 	for {
 		k := <-keyEvents
 		if k == 'Y' || k == 'y' {
@@ -459,8 +376,8 @@ func nextYN(message string) rune {
 func nextRetryOrExit() bool {
 	msg := "\nPress 'R' to Retry, <ESC> to exit"
 	fmt.Printf("\033[32m%s\033[0m\n", msg)
-	DrainKeys()
-	keyEvents := StartKeyEvents()
+	ui.DrainKeys()
+	keyEvents := ui.StartKeyEvents()
 	for {
 		k := <-keyEvents
 		if k == 'R' || k == 'r' {
@@ -476,8 +393,8 @@ func nextRetryOrExit() bool {
 func nextFlashAction() rune {
 	msg := "\nFlash failed. Press 'F' to retry, 'S' to skip flashing, or <ESC> to exit"
 	fmt.Printf("\033[33m%s\033[0m\n", msg)
-	DrainKeys()
-	keyEvents := StartKeyEvents()
+	ui.DrainKeys()
+	keyEvents := ui.StartKeyEvents()
 	for {
 		k := <-keyEvents
 		if k == 'F' || k == 'f' {
@@ -502,7 +419,7 @@ func zeroCalibration(bars *serialpkg.Leo485, parameters *PARAMETERS) *matrix.Mat
 	return updateMatrixZero(ads, 3*(len(parameters.BARS)-1), bars.NLCs)
 }
 
-func weightCalibration(bars *Leo485, parameters *PARAMETERS) *Matrix {
+func weightCalibration(bars *serialpkg.Leo485, parameters *PARAMETERS) *Matrix {
 	nlcs := bars.NLCs
 	nbars := len(parameters.BARS)
 	nloads := 3 * (nbars - 1) * nlcs
@@ -563,11 +480,11 @@ func showADCLabel(bars *serialpkg.Leo485, message string, finalLabel string) ([]
 	return manipulateADC(bars, finalLabel)
 }
 
-func manipulateADC(bars *Leo485, finalLabel string) ([]int64, bool) {
+func manipulateADC(bars *serialpkg.Leo485, finalLabel string) ([]int64, bool) {
 	// Print instruction once
 	fmt.Println()
 	// Clear any pending key presses from previous phase to avoid accidental triggers
-	DrainKeys()
+	ui.DrainKeys()
 
 	// Phase management
 	phase := "live" // "live", "ignoring", "averaging", "finished"
@@ -593,7 +510,7 @@ func manipulateADC(bars *Leo485, finalLabel string) ([]int64, bool) {
 
 	var finalAverages [][]int64
 
-	keyEvents := StartKeyEvents() // raw mode channel (no Enter)
+	keyEvents := ui.StartKeyEvents() // raw mode channel (no Enter)
 
 	for {
 		// Check for keyboard input - only in live phase
@@ -750,7 +667,7 @@ func printMatrix(m *matrix.Matrix, title string) {
 	if lastParameters != nil && lastParameters.DEBUG {
 		fmt.Print("\033[33m")
 	}
-	fmt.Println(matrixline)
+	fmt.Println(matrix.MatrixLine)
 	fmt.Println(title, " (", m.Rows, "x", m.Cols, ")")
 	maxRows := m.Rows
 	if maxRows > 12 { // limit output for readability
@@ -774,7 +691,7 @@ func printMatrix(m *matrix.Matrix, title string) {
 	if m.Rows > maxRows {
 		fmt.Println("...")
 	}
-	fmt.Println(matrixline)
+	fmt.Println(matrix.MatrixLine)
 	if lastParameters != nil && lastParameters.DEBUG {
 		fmt.Print("\033[0m")
 	}
@@ -785,7 +702,7 @@ func printVector(v *matrix.Vector, title string) {
 	if lastParameters != nil && lastParameters.DEBUG {
 		fmt.Print("\033[33m")
 	}
-	fmt.Println(matrixline)
+	fmt.Println(matrix.MatrixLine)
 	fmt.Println(title, " (", v.Length, ")")
 	max := v.Length
 	if max > 24 {
@@ -797,7 +714,7 @@ func printVector(v *matrix.Vector, title string) {
 	if v.Length > max {
 		fmt.Println("...")
 	}
-	fmt.Println(matrixline)
+	fmt.Println(matrix.MatrixLine)
 	if lastParameters != nil && lastParameters.DEBUG {
 		fmt.Print("\033[0m")
 	}
@@ -937,21 +854,21 @@ func calcZerosFactors(adv, ad0 *matrix.Matrix, parameters *PARAMETERS) string {
 		check := add.MulVector(factors)
 		// Show check with only one digit after the decimal point
 		recordData(debug, check, "Check", "%8.1f")
-		fmt.Println(matrixline)
+		fmt.Println(matrix.MatrixLine)
 		norm := check.Sub(w).Norm() / float64(parameters.WEIGHT)
 		// Print diagnostics in yellow (debug-only)
 		fmt.Print("\033[33m")
 		fmt.Printf("Error: %e\n", norm)
 		debug += fmt.Sprintf("Error,%e\n", norm)
-		fmt.Println(matrixline)
+		fmt.Println(matrix.MatrixLine)
 
 		fmt.Printf("Pseudoinverse Norm: %e\n", adi.Norm())
 		debug += fmt.Sprintf("PseudoinverseNorm,%e\n", adi.Norm())
-		fmt.Println(matrixline)
+		fmt.Println(matrix.MatrixLine)
 		fmt.Print("\033[0m")
 		// Reset color after debug block
 		fmt.Print("\033[0m")
-		debug += matrixline + "\n"
+		debug += matrix.MatrixLine + "\n"
 	}
 
 	nbars := len(parameters.BARS)
@@ -989,15 +906,15 @@ func recordData(debug string, vec *Vector, title, format string) string {
 func printFactorsIEEE(factors *Vector) {
 	// Orange color for factors
 	fmt.Print("\033[38;5;208m")
-	fmt.Println(matrixline)
+	fmt.Println(matrix.MatrixLine)
 	fmt.Println("factors (IEEE754)")
 	for i, val := range factors.Values {
-		hex := fmt.Sprintf("%08X", ToIEEE754(float32(val)))
+		hex := fmt.Sprintf("%08X", matrix.ToIEEE754(float32(val)))
 		// Use space flag to align sign: positive numbers get a leading space, negatives show '-'
 		// This keeps the decimal column aligned regardless of sign.
 		fmt.Printf("[%03d]  % .12f  %s\n", i, val, hex)
 	}
-	fmt.Println(matrixline)
+	fmt.Println(matrix.MatrixLine)
 	fmt.Print("\033[0m")
 }
 
@@ -1035,7 +952,7 @@ func appendToFile(file, content string) {
 	}
 }
 
-func flashParameters(bars *Leo485, parameters *PARAMETERS) error {
+func flashParameters(bars *serialpkg.Leo485, parameters *PARAMETERS) error {
 	if len(parameters.BARS) == 0 || len(parameters.BARS[0].LC) == 0 {
 		return nil
 	}
@@ -1064,8 +981,8 @@ func flashParameters(bars *Leo485, parameters *PARAMETERS) error {
 	for attempt := 1; attempt <= 6 && len(notReady) > 0; attempt++ {
 		remaining := make([]int, 0)
 		for _, idx := range notReady {
-			cmd := GetCommand(parameters.BARS[idx].ID, []byte(Euler))
-			resp, err := changeState(bars.Serial, cmd, 400)
+			cmd := serialpkg.GetCommand(parameters.BARS[idx].ID, []byte(serialpkg.Euler))
+			resp, err := serialpkg.ChangeState(bars.Serial, cmd, 400)
 			if err != nil {
 				if parameters.DEBUG {
 					debugPrintf(true, "Euler handshake bar %d attempt %d err=%v resp=%q\n", idx+1, attempt, err, resp)
@@ -1102,7 +1019,7 @@ func flashParameters(bars *Leo485, parameters *PARAMETERS) error {
 	// send a single CR once to prime all bootloaders
 	_, _ = bars.Serial.Write([]byte{0x0D})
 	// small read to clear any immediate reply (use lower-level readUntil)
-	_, _ = readUntil(bars.Serial, 50)
+	_, _ = serialpkg.ReadUntil(bars.Serial, 50)
 
 	nbars := len(parameters.BARS)
 	for i := 0; i < nbars; i++ {
@@ -1112,8 +1029,8 @@ func flashParameters(bars *Leo485, parameters *PARAMETERS) error {
 		greenPrintf(" LCS=%d\n", lcs)
 
 		nlcs := len(parameters.BARS[i].LC)
-		zero := NewVector(nlcs)
-		facs := NewVector(nlcs)
+		zero := matrix.NewVector(nlcs)
+		facs := matrix.NewVector(nlcs)
 		zeravg := 0.0
 		for j := 0; j < nlcs; j++ {
 			zero.Values[j] = float64(parameters.BARS[i].LC[j].ZERO)
@@ -1138,10 +1055,10 @@ func flashParameters(bars *Leo485, parameters *PARAMETERS) error {
 			}
 		}
 		sb += fmt.Sprintf("%09d|", uint64(zeravg/float64(nlcs)+0.5))
-		zeroCmd := GetCommand(parameters.BARS[i].ID, []byte(sb))
+		zeroCmd := serialpkg.GetCommand(parameters.BARS[i].ID, []byte(sb))
 		wroteZeros := false
 		for attempt := 1; attempt <= 3; attempt++ {
-			resp, err := updateValue(bars.Serial, zeroCmd, 200)
+			resp, err := serialpkg.UpdateValue(bars.Serial, zeroCmd, 200)
 			if err == nil && strings.Contains(resp, "OK") {
 				wroteZeros = true
 				if parameters.DEBUG {
@@ -1171,10 +1088,10 @@ func flashParameters(bars *Leo485, parameters *PARAMETERS) error {
 				sb2 += "1.0000000000|"
 			}
 		}
-		facCmd := GetCommand(parameters.BARS[i].ID, []byte(sb2))
+		facCmd := serialpkg.GetCommand(parameters.BARS[i].ID, []byte(sb2))
 		wroteFacs := false
 		for attempt := 1; attempt <= 3; attempt++ {
-			resp, err := updateValue(bars.Serial, facCmd, 200)
+			resp, err := serialpkg.UpdateValue(bars.Serial, facCmd, 200)
 			if err == nil && strings.Contains(resp, "OK") {
 				wroteFacs = true
 				if parameters.DEBUG {
@@ -1202,7 +1119,7 @@ func flashParameters(bars *Leo485, parameters *PARAMETERS) error {
 	return nil
 }
 
-func checkVersion(bars *Leo485, parameters *PARAMETERS) bool {
+func checkVersion(bars *serialpkg.Leo485, parameters *PARAMETERS) bool {
 	// If no VERSION section in JSON, skip validation and just discover current version
 	if parameters.VERSION == nil {
 		parameters.VERSION = &VERSION{}
@@ -1334,8 +1251,8 @@ func testPort(name string, barID int, baud int) bool {
 	}
 	defer func() { _ = sp.Close() }()
 
-	cmd := GetCommand(barID, []byte("V"))
-	resp, err := getData(sp, cmd, 200)
+	cmd := serialpkg.GetCommand(barID, []byte("V"))
+	resp, err := serialpkg.GetData(sp, cmd, 200)
 	if err != nil {
 		return false
 	}
@@ -1343,7 +1260,7 @@ func testPort(name string, barID int, baud int) bool {
 }
 
 // probeVersion quickly checks if current bars setup responds to a version query.
-func probeVersion(bars *Leo485, parameters *PARAMETERS) bool {
+func probeVersion(bars *serialpkg.Leo485, parameters *PARAMETERS) bool {
 	_, _, _, err := bars.GetVersion(0)
 	return err == nil
 }

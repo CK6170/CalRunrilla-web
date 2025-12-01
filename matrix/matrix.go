@@ -9,7 +9,7 @@ import (
 )
 
 const EPSILON = 1e-15
-const matrixline = "------------------------------------------------------------------"
+const MatrixLine = "------------------------------------------------------------------"
 
 type Matrix struct {
 	Rows, Cols int
@@ -120,7 +120,7 @@ func (m *Matrix) SetRow(i int, v *Vector) {
 
 func (m *Matrix) ToStrings(title, format string) (string, string) {
 	sb := &strings.Builder{}
-	sb.WriteString(matrixline + "\n")
+	sb.WriteString(MatrixLine + "\n")
 	sb.WriteString(title + "\n")
 	for i := range m.Values {
 		for j := range m.Values[i] {
@@ -128,6 +128,6 @@ func (m *Matrix) ToStrings(title, format string) (string, string) {
 		}
 		sb.WriteString("\n")
 	}
-	sb.WriteString(matrixline)
+	sb.WriteString(MatrixLine)
 	return sb.String(), ""
 }

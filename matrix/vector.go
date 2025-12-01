@@ -41,7 +41,7 @@ func (v *Vector) Sub(other *Vector) *Vector {
 
 func (v *Vector) ToStrings(title, format string) (string, string) {
 	sb := &strings.Builder{}
-	sb.WriteString(matrixline + "\n")
+	sb.WriteString(MatrixLine + "\n")
 	sb.WriteString(title + "\n")
 	fmtStr := "%10.0f"
 	if format != "" {
@@ -51,6 +51,6 @@ func (v *Vector) ToStrings(title, format string) (string, string) {
 		fmt.Fprintf(sb, fmtStr+"\n", val)
 		_ = i
 	}
-	sb.WriteString(matrixline)
+	sb.WriteString(MatrixLine)
 	return sb.String(), ""
 }

@@ -178,3 +178,9 @@ func GetData(sp *goserial.Port, cmd []byte, timeout int) (string, error) {
 func SendCommand(sp *goserial.Port, cmd []byte, timeout int) ([]byte, error) {
 	return sendCommand(sp, cmd, timeout)
 }
+
+// ReadUntil exposes the internal readUntil helper for callers that need the
+// raw byte buffer instead of the parsed string.
+func ReadUntil(sp *goserial.Port, timeout int) ([]byte, error) {
+	return readUntil(sp, timeout)
+}
