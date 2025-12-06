@@ -1,0 +1,65 @@
+<!doctype html><html><head><meta charset="utf-8"><style>body{font-family:Arial,Helvetica,sans-serif;margin:20px}table.matrix,table.vector{border-collapse:collapse;margin-bottom:12px}table.matrix td,table.vector td{border:1px solid #ccc;padding:6px;text-align:right}h2{color:#333}</style></head><body>
+<script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+<h1>CalRunrilla report</h1><p><strong>Weight:</strong> 1000</p>
+<h2>Zero matrix (ad0)</h2>
+<table class="matrix">
+  <tr><td>150000000</td><td>150000000</td><td>150000000</td><td>150000000</td></tr>
+  <tr><td>150000000</td><td>150000000</td><td>150000000</td><td>150000000</td></tr>
+  <tr><td>150000000</td><td>150000000</td><td>150000000</td><td>150000000</td></tr>
+  <tr><td>150000000</td><td>150000000</td><td>150000000</td><td>150000000</td></tr>
+  <tr><td>150000000</td><td>150000000</td><td>150000000</td><td>150000000</td></tr>
+  <tr><td>150000000</td><td>150000000</td><td>150000000</td><td>150000000</td></tr>
+</table>
+<h2>Weight matrix (adv)</h2>
+<table class="matrix">
+  <tr><td>152000000</td><td>150000000</td><td>150000000</td><td>150000000</td></tr>
+  <tr><td>150000000</td><td>152000000</td><td>150000000</td><td>150000000</td></tr>
+  <tr><td>151000000</td><td>150000000</td><td>151000000</td><td>150000000</td></tr>
+  <tr><td>150000000</td><td>151000000</td><td>150000000</td><td>151000000</td></tr>
+  <tr><td>150000000</td><td>150000000</td><td>152000000</td><td>150000000</td></tr>
+  <tr><td>150000000</td><td>150000000</td><td>150000000</td><td>152000000</td></tr>
+</table>
+<h2>Difference (adv - ad0)</h2>
+<table class="matrix">
+  <tr><td>2000000</td><td>0</td><td>0</td><td>0</td></tr>
+  <tr><td>0</td><td>2000000</td><td>0</td><td>0</td></tr>
+  <tr><td>1000000</td><td>0</td><td>1000000</td><td>0</td></tr>
+  <tr><td>0</td><td>1000000</td><td>0</td><td>1000000</td></tr>
+  <tr><td>0</td><td>0</td><td>2000000</td><td>0</td></tr>
+  <tr><td>0</td><td>0</td><td>0</td><td>2000000</td></tr>
+</table>
+<h2>Factors (decimal)</h2>
+<table class="vector">
+  <tr><td>0.000500</td></tr>
+  <tr><td>0.000500</td></tr>
+  <tr><td>0.000500</td></tr>
+  <tr><td>0.000500</td></tr>
+</table>
+<div>\(f = \begin{pmatrix}0.000500\\0.000500\\0.000500\\0.000500\end{pmatrix}\)</div>
+<h2>Check (add * factors)</h2>
+<table class="vector">
+  <tr><td>1000.000000</td></tr>
+  <tr><td>1000.000000</td></tr>
+  <tr><td>1000.000000</td></tr>
+  <tr><td>1000.000000</td></tr>
+  <tr><td>1000.000000</td></tr>
+  <tr><td>1000.000000</td></tr>
+</table>
+<h2>Pseudoinverse (adi)</h2>
+<table class="matrix">
+  <tr><td>0.000000</td><td>0.000000</td><td>0.000000</td><td>0.000000</td><td>-0.000000</td><td>0.000000</td></tr>
+  <tr><td>0.000000</td><td>0.000000</td><td>0.000000</td><td>0.000000</td><td>0.000000</td><td>-0.000000</td></tr>
+  <tr><td>-0.000000</td><td>0.000000</td><td>0.000000</td><td>0.000000</td><td>0.000000</td><td>0.000000</td></tr>
+  <tr><td>0.000000</td><td>-0.000000</td><td>0.000000</td><td>0.000000</td><td>0.000000</td><td>0.000000</td></tr>
+</table>
+<h3>Per-factor calculation</h3>
+<div>\(0.000000*1000.000000 + 0.000000*1000.000000 + 0.000000*1000.000000 + 0.000000*1000.000000 + -0.000000*1000.000000 + 0.000000*1000.000000 = 0.000500\)</div>
+<div>\(0.000000*1000.000000 + 0.000000*1000.000000 + 0.000000*1000.000000 + 0.000000*1000.000000 + 0.000000*1000.000000 + -0.000000*1000.000000 = 0.000500\)</div>
+<div>\(-0.000000*1000.000000 + 0.000000*1000.000000 + 0.000000*1000.000000 + 0.000000*1000.000000 + 0.000000*1000.000000 + 0.000000*1000.000000 = 0.000500\)</div>
+<div>\(0.000000*1000.000000 + -0.000000*1000.000000 + 0.000000*1000.000000 + 0.000000*1000.000000 + 0.000000*1000.000000 + 0.000000*1000.000000 = 0.000500\)</div>
+<h2>Diagnostics</h2>
+<p><strong>Error (normalized):</strong> 7.190187e-16</p><p><strong>Pseudoinverse Norm:</strong> 9.128709e-07</p><h2>Equations</h2>
+<div>$$\begin{pmatrix}2000000 & 0 & 0 & 0\\0 & 2000000 & 0 & 0\\1000000 & 0 & 1000000 & 0\\0 & 1000000 & 0 & 1000000\\0 & 0 & 2000000 & 0\\0 & 0 & 0 & 2000000\end{pmatrix} \cdot \begin{pmatrix}0.000500\\0.000500\\0.000500\\0.000500\end{pmatrix} = \begin{pmatrix}1000.000000\\1000.000000\\1000.000000\\1000.000000\\1000.000000\\1000.000000\end{pmatrix}\
+\begin{pmatrix}0.000500\\0.000500\\0.000500\\0.000500\end{pmatrix}^{T} = \begin{pmatrix}0.000500 & 0.000500 & 0.000500 & 0.000500\end{pmatrix}$$</div>
+</body></html>

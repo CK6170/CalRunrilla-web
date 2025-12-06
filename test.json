@@ -10,8 +10,8 @@
     "MINOR": 202
   },
   "WEIGHT": 500,
-  "AVG": 15,
-  "IGNORE": 2,
+  "AVG": 2,
+  "IGNORE": 1,
   "DEBUG": true,
   "BARS": [
     {

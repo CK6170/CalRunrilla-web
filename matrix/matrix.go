@@ -131,3 +131,39 @@ func (m *Matrix) ToStrings(title, format string) (string, string) {
 	sb.WriteString(MatrixLine)
 	return sb.String(), ""
 }
+
+// printMatrix dumps the full matrix (may be large). For debugging only.
+func PrintMatrix(m *Matrix, title string, debug bool) {
+	// Yellow for debug matrices
+	if debug {
+		fmt.Print("\033[33m")
+	}
+	fmt.Println(MatrixLine)
+	fmt.Println(title, " (", m.Rows, "x", m.Cols, ")")
+	maxRows := m.Rows
+	if maxRows > 12 { // limit output for readability
+		maxRows = 12
+	}
+	for i := 0; i < maxRows; i++ {
+		row := m.Values[i]
+		line := fmt.Sprintf("[%03d]", i)
+		maxCols := len(row)
+		if maxCols > 16 {
+			maxCols = 16
+		}
+		for j := 0; j < maxCols; j++ {
+			line += fmt.Sprintf(" %10.0f", row[j])
+		}
+		if len(row) > maxCols {
+			line += " ..."
+		}
+		fmt.Println(line)
+	}
+	if m.Rows > maxRows {
+		fmt.Println("...")
+	}
+	fmt.Println(MatrixLine)
+	if debug {
+		fmt.Print("\033[0m")
+	}
+}

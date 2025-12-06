@@ -54,3 +54,26 @@ func (v *Vector) ToStrings(title, format string) (string, string) {
 	sb.WriteString(MatrixLine)
 	return sb.String(), ""
 }
+
+// printVector dumps a trimmed view of a vector for debugging
+func PrintVector(v *Vector, title string, debug bool) {
+	if debug {
+		fmt.Print("\033[33m")
+	}
+	fmt.Println(MatrixLine)
+	fmt.Println(title, " (", v.Length, ")")
+	max := v.Length
+	if max > 24 {
+		max = 24
+	}
+	for i := 0; i < max; i++ {
+		fmt.Printf("[%03d] %10.0f\n", i, v.Values[i])
+	}
+	if v.Length > max {
+		fmt.Println("...")
+	}
+	fmt.Println(MatrixLine)
+	if debug {
+		fmt.Print("\033[0m")
+	}
+}
