@@ -1,6 +1,22 @@
 package ui
 
-import "fmt"
+import (
+	"fmt"
+	"io"
+)
+
+// redWriter wraps an io.Writer and emits red-colored output. Defined at package scope
+// because methods cannot be declared inside functions.
+type RedWriter struct{ w io.Writer }
+
+func (r RedWriter) Write(p []byte) (int, error) {
+	out := append([]byte("\033[31m"), p...)
+	out = append(out, []byte("\033[0m")...)
+	return r.w.Write(out)
+}
+
+// NewRedWriter returns a RedWriter wrapping the provided io.Writer.
+func NewRedWriter(w io.Writer) RedWriter { return RedWriter{w: w} }
 
 // Debugf prints a yellow debug message when enabled is true.
 func Debugf(enabled bool, format string, a ...interface{}) {
