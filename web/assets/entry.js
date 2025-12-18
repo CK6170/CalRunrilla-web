@@ -2,6 +2,14 @@ import { $, escapeHTML, log, setDisabled, setStatus } from "./lib/dom.js";
 import { state } from "./lib/state.js";
 import { apiJSON, uploadFile } from "./lib/api.js";
 
+/**
+ * Render a compact view of key config parameters on the entry screen.
+ *
+ * The config JSON may use either upper-case fields (Go struct tags) or
+ * lower-case variants; this function supports both.
+ *
+ * @param {any|null} cfg Parsed config JSON object.
+ */
 export function renderEntryParams(cfg) {
   const el = $("entryParams");
   if (!el) return;
@@ -47,6 +55,19 @@ export function renderEntryParams(cfg) {
   `;
 }
 
+/**
+ * Upload the selected `config.json` and connect the backend to the device.
+ *
+ * Flow:
+ * - Guard against concurrent clicks via `state.entryBusy`
+ * - Parse config locally to show key parameters immediately
+ * - POST multipart upload to `/api/upload/config`
+ * - POST JSON connect request to `/api/connect`
+ * - Update global state + UI status line
+ *
+ * @returns {Promise<void>}
+ * @throws {Error} If no file is selected or connection fails.
+ */
 export async function uploadAndConnect() {
   if (state.entryBusy) return;
   const f = $("configFile").files?.[0];
@@ -94,6 +115,13 @@ export async function uploadAndConnect() {
   }
 }
 
+/**
+ * Disconnect the current device session.
+ *
+ * This clears connection-related state so a new config can be uploaded.
+ *
+ * @returns {Promise<void>}
+ */
 export async function disconnect() {
   await apiJSON("/api/disconnect");
   state.connected = false;

@@ -3,6 +3,17 @@ import { state } from "./lib/state.js";
 import { apiJSON } from "./lib/api.js";
 import { closeWS, connectWS } from "./lib/ws.js";
 
+/**
+ * Normalize human instructions coming from the backend calibration plan.
+ *
+ * The goal is to keep the on-screen instructions clean and consistent:
+ * - Collapse whitespace
+ * - Avoid duplicate punctuation
+ * - Strip trailing "then/and press Continue" so the UI controls that phrasing
+ *
+ * @param {any} s
+ * @returns {string}
+ */
 export function normalizePromptText(s) {
   let t = String(s || "").trim();
   // avoid double punctuation like "Shelf., then"
@@ -15,6 +26,13 @@ export function normalizePromptText(s) {
   return t;
 }
 
+/**
+ * Extract a short description of which bay the user should interact with from
+ * a full prompt sentence.
+ *
+ * @param {string} prompt
+ * @returns {string}
+ */
 function extractBayDescFromPrompt(prompt) {
   let t = normalizePromptText(prompt);
   // For weight steps, remove leading "Put <weight> on (the) ..."
@@ -25,6 +43,12 @@ function extractBayDescFromPrompt(prompt) {
   return t;
 }
 
+/**
+ * User-facing "wait" text shown while warmup/averaging samples are being collected.
+ *
+ * @param {any} step Calibration step object from `/api/calibration/plan`.
+ * @returns {string}
+ */
 function calWaitTextForStep(step) {
   const kind = String(step?.kind || "").toLowerCase();
   const label = String(step?.label || "").toUpperCase();
@@ -34,6 +58,11 @@ function calWaitTextForStep(step) {
   return `Wait.. Gathering data from ${desc || "bay(s)."}`;
 }
 
+/**
+ * Render raw matrix diagnostic output (console-style) into the right panel.
+ *
+ * @param {string} text
+ */
 function renderCalMatricesText(text) {
   state.calMatricesText = text || "";
   const el = $("calAveraged");
@@ -45,6 +74,15 @@ function renderCalMatricesText(text) {
   el.innerHTML = `<div class="pill" style="margin-bottom:8px;">Matrix calculation</div><pre class="log" style="white-space:pre;overflow:auto;max-height:420px;">${escapeHTML(state.calMatricesText)}</pre>`;
 }
 
+/**
+ * Render a nicer, structured view of matrix diagnostics if the backend provides it.
+ *
+ * The backend returns both:
+ * - `payload.text`: console-style text
+ * - `payload.structured`: typed arrays suitable for tables
+ *
+ * @param {any} payload
+ */
 export function renderCalMatricesPretty(payload) {
   const el = $("calAveraged");
   const structured = payload?.structured;
@@ -128,6 +166,12 @@ export function renderCalMatricesPretty(payload) {
   }
 }
 
+/**
+ * Render the currently selected calibration step in the left panel.
+ *
+ * This also sets `state.calStepTextBase` so the UI can temporarily override the
+ * instruction line during warmup/averaging and then restore it when idle.
+ */
 function renderCalStep() {
   const st = state.calSteps[state.calIndex];
   if (!st) {
@@ -141,6 +185,11 @@ function renderCalStep() {
   $("calStartContinue").style.display = "";
 }
 
+/**
+ * Fetch the calibration plan (list of steps) from the backend and render step 1.
+ *
+ * @returns {Promise<void>}
+ */
 export async function loadCalPlan() {
   const res = await fetch("/api/calibration/plan");
   const data = await res.json();
@@ -150,6 +199,15 @@ export async function loadCalPlan() {
   renderCalStep();
 }
 
+/**
+ * Render current ADC values (and progress phase) during calibration.
+ *
+ * The backend provides `phase` values such as "ignoring" and "averaging" so the
+ * UI can display warmup/averaging progress and colorize numbers.
+ *
+ * @param {any} data Payload from `/api/calibration/adc` or WS sample events.
+ * @param {string|null} [phaseOverride]
+ */
 export function renderCalADC(data, phaseOverride = null) {
   const current = data.current || [];
   const phase = phaseOverride !== null ? phaseOverride : (data.phase || "");
@@ -217,6 +275,14 @@ export function renderCalADC(data, phaseOverride = null) {
   if (!state.calMatricesText) averagedContainer.innerHTML = "";
 }
 
+/**
+ * Poll `/api/calibration/adc` while idle to show live readings without starting sampling.
+ *
+ * During active sampling the backend may serve a cached snapshot instead of
+ * hitting the serial port (to avoid conflicts).
+ *
+ * @returns {Promise<void>}
+ */
 export async function pollCalADC() {
   try {
     const res = await fetch("/api/calibration/adc");
@@ -252,6 +318,14 @@ export async function pollCalADC() {
   }
 }
 
+/**
+ * Trigger a browser download of the calibrated JSON stored on the server.
+ *
+ * This uses a synthetic <a> click so it works without navigation.
+ * A guard prevents repeated downloads for the same id.
+ *
+ * @param {string} calibratedId
+ */
 function triggerDownloadCalibrated(calibratedId) {
   if (!calibratedId) return;
   if (state.calDownloadedId === calibratedId) return;
@@ -264,6 +338,15 @@ function triggerDownloadCalibrated(calibratedId) {
   a.remove();
 }
 
+/**
+ * Abort calibration flow:
+ * - stop polling
+ * - stop backend operation
+ * - close WS
+ * - reset state and return to Entry
+ *
+ * @returns {Promise<void>}
+ */
 export async function abortCalibration() {
   const btn = $("calAbort");
   setDisabled(btn, true);
@@ -293,6 +376,17 @@ export async function abortCalibration() {
   }
 }
 
+/**
+ * Main "Start/Continue" button handler for calibration.
+ *
+ * This function implements a small state machine:
+ * - While sampling is in progress: the button stays disabled
+ * - After the last sampling step: ask user to clear bays, then compute
+ * - After compute: download calibrated JSON + show matrices + allow flash
+ * - Flash: stream progress over WS and finalize
+ *
+ * @returns {Promise<void>}
+ */
 export async function startCalStep() {
   if ($("calStartContinue").textContent === "Finish") {
     show("entryCard");

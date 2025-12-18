@@ -3,6 +3,18 @@ import { apiJSON, uploadFile } from "./lib/api.js";
 import { state } from "./lib/state.js";
 import { closeWS, connectWS } from "./lib/ws.js";
 
+/**
+ * Upload a calibrated JSON file and flash it to the device.
+ *
+ * Flow:
+ * - Validate user selected a `*_calibrated.json`
+ * - Render a local preview so the user can sanity-check zeros/factors
+ * - Upload the file to `/api/upload/calibrated` (server stores it in-memory)
+ * - Open `/ws/flash` for progress events
+ * - POST `/api/flash/start` with the returned `calibratedId`
+ *
+ * @returns {Promise<void>}
+ */
 export async function uploadAndFlash() {
   const f = $("calibratedFile").files?.[0];
   if (!f) throw new Error("Choose a *_calibrated.json file first");
@@ -30,6 +42,14 @@ export async function uploadAndFlash() {
   log($("flashLog"), "Flash started");
 }
 
+/**
+ * Render a table preview of zeros + factors found in a calibrated JSON object.
+ *
+ * Supports both Go-style uppercase fields (BARS/LC/ZERO/FACTOR/IEEE) and
+ * lowercase variants.
+ *
+ * @param {any|null} obj Parsed calibrated JSON.
+ */
 export function renderFlashPreview(obj) {
   const el = $("flashPreview");
   if (!el) return;
@@ -77,6 +97,12 @@ export function renderFlashPreview(obj) {
   `;
 }
 
+/**
+ * Read a calibrated JSON file and render it via {@link renderFlashPreview}.
+ *
+ * @param {File|Blob} file
+ * @returns {Promise<void>}
+ */
 export async function renderFlashPreviewFromFile(file) {
   const el = $("flashPreview");
   if (!el) return;
@@ -86,6 +112,11 @@ export async function renderFlashPreviewFromFile(file) {
   renderFlashPreview(obj);
 }
 
+/**
+ * Request stop/cancel of the current flash operation and close the socket.
+ *
+ * @returns {Promise<void>}
+ */
 export async function stopFlash() {
   await apiJSON("/api/flash/stop");
   closeWS(state.ws.flash);

@@ -5,6 +5,19 @@ import { abortCalibration, loadCalPlan, pollCalADC, startCalStep } from "./calib
 import { applyTestConfigIfRunning, setTestTotalsExpanded, startTest, stopTest, toggleTestTotalsExpanded, zeroTest } from "./test.js";
 import { renderFlashPreviewFromFile, stopFlash, uploadAndFlash } from "./flash.js";
 
+/**
+ * Main UI wiring (no framework).
+ *
+ * This file attaches event handlers to DOM elements and coordinates transitions
+ * between the four "cards" (entry / calibration / test / flash).
+ *
+ * Feature modules implement behavior:
+ * - `entry.js`: upload/connect/disconnect
+ * - `calibration.js`: plan + sampling + compute/flash flow
+ * - `test.js`: live readings + zeroing
+ * - `flash.js`: flash an already-calibrated JSON
+ */
+
 // Wire UI
 $("btnUploadConnect").onclick = () => uploadAndConnect().catch((e) => log($("entryLog"), `ERROR: ${e.message}`));
 $("btnDisconnect").onclick = async () => {
@@ -22,6 +35,7 @@ $("configFile").onchange = () => {
   uploadAndConnect().catch((e) => log($("entryLog"), `ERROR: ${e.message}`));
 };
 
+// Navigation: Entry -> Calibration
 $("goCalibration").onclick = async () => {
   if (!state.connected) return log($("entryLog"), "Connect first");
   if (state.testRunning) {
@@ -48,6 +62,7 @@ $("goCalibration").onclick = async () => {
   loadCalPlan().catch((e) => log($("calLog"), `ERROR: ${e.message}`));
 };
 
+// Navigation: Entry -> Test
 $("goTest").onclick = () => {
   if (!state.connected) return log($("entryLog"), "Connect first");
   if (state.calPollingInterval) {
@@ -68,6 +83,7 @@ $("goTest").onclick = () => {
   startTest().catch((e) => log($("testLog"), `ERROR: ${e.message}`));
 };
 
+// Navigation: Entry -> Flash
 $("goFlash").onclick = async () => {
   if (!state.connected) return log($("entryLog"), "Connect first");
   if (state.testRunning) {
@@ -83,6 +99,7 @@ $("goFlash").onclick = async () => {
   $("flashPreview").innerHTML = "";
 };
 
+// Calibration controls
 $("calStartContinue").onclick = () => {
   startCalStep().catch((e) => {
     log($("calLog"), `ERROR: ${e.message}`);
@@ -91,6 +108,7 @@ $("calStartContinue").onclick = () => {
 };
 $("calAbort").onclick = () => abortCalibration().catch((e) => log($("calLog"), `ERROR: ${e.message}`));
 
+// Test controls
 $("testBack").onclick = () => { stopTest().finally(() => show("entryCard")); };
 $("testStart").onclick = () => startTest().catch((e) => log($("testLog"), `ERROR: ${e.message}`));
 $("testStop").onclick = () => stopTest().catch((e) => log($("testLog"), `ERROR: ${e.message}`));
@@ -102,6 +120,7 @@ $("testDebug").onchange = () => applyTestConfigIfRunning().catch((e) => log($("t
 $("testTickMs").onchange = () => applyTestConfigIfRunning().catch((e) => log($("testLog"), `ERROR: ${e.message}`));
 $("testADTimeoutMs").onchange = () => applyTestConfigIfRunning().catch((e) => log($("testLog"), `ERROR: ${e.message}`));
 
+// Flash controls
 $("flashBack").onclick = () => { stopFlash().finally(() => show("entryCard")); };
 $("flashUploadStart").onclick = () => uploadAndFlash().catch((e) => log($("flashLog"), `ERROR: ${e.message}`));
 $("flashStop").onclick = () => stopFlash().catch((e) => log($("flashLog"), `ERROR: ${e.message}`));

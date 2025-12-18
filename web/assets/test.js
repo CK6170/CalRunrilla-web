@@ -3,6 +3,13 @@ import { state } from "./lib/state.js";
 import { apiJSON } from "./lib/api.js";
 import { closeWS, connectWS } from "./lib/ws.js";
 
+/**
+ * Update the compact "zeros / rate" info line shown above the live table.
+ *
+ * The line merges:
+ * - transient zeroing progress (`state.testZeroLineBase`)
+ * - smoothed snapshot rate per bar (`state.testRatePerBar`)
+ */
 function setTestInfoLine() {
   const parts = [];
   if (state.testZeroLineBase) parts.push(state.testZeroLineBase);
@@ -10,6 +17,17 @@ function setTestInfoLine() {
   $("testZeros").textContent = parts.join("  |  ");
 }
 
+/**
+ * If test mode is running, push the current UI configuration to the backend.
+ *
+ * This is called from onchange handlers so the test loop can be tuned without
+ * restarting:
+ * - debug: include more details in snapshots
+ * - tickMs: poll interval
+ * - adTimeoutMs: serial read timeout for ADC reads
+ *
+ * @returns {Promise<void>}
+ */
 export async function applyTestConfigIfRunning() {
   if (!state.testRunning) return;
   const debug = !!$("testDebug")?.checked;
@@ -18,6 +36,13 @@ export async function applyTestConfigIfRunning() {
   await apiJSON("/api/test/config", { debug, tickMs, adTimeoutMs });
 }
 
+/**
+ * Set whether the totals panel is expanded.
+ *
+ * The expanded mode is implemented by toggling a CSS class on the test card.
+ *
+ * @param {boolean} expanded
+ */
 export function setTestTotalsExpanded(expanded) {
   state.testTotalsExpanded = !!expanded;
   const card = $("testCard");
@@ -30,6 +55,17 @@ export function toggleTestTotalsExpanded() {
   setTestTotalsExpanded(!state.testTotalsExpanded);
 }
 
+/**
+ * Start live test mode and render snapshots received over WebSocket.
+ *
+ * The backend sends:
+ * - zerosProgress / zerosCollected / zerosDone / zerosSummary
+ * - factorsRead (device factors) so UI can display the formula columns
+ * - snapshot (live per-bar/per-LC weights + totals)
+ * - stopped / error
+ *
+ * @returns {Promise<void>}
+ */
 export async function startTest() {
   if (state.testRunning) return;
   connectWS("test", "/ws/test", (msg) => {
@@ -110,6 +146,13 @@ export async function startTest() {
   log($("testLog"), "Test started");
 }
 
+/**
+ * Render a single snapshot payload into the test table + totals panel.
+ *
+ * This is intentionally defensive: it treats missing fields as empty arrays.
+ *
+ * @param {any} snap Snapshot payload from the backend.
+ */
 export function renderTestSnapshot(snap) {
   if (!snap) return;
   const grandTotal = Number(snap.grandTotal);
@@ -156,6 +199,11 @@ export function renderTestSnapshot(snap) {
   $("testTable").innerHTML = html;
 }
 
+/**
+ * Request stop of test mode and tear down client-side resources.
+ *
+ * @returns {Promise<void>}
+ */
 export async function stopTest() {
   await apiJSON("/api/test/stop");
   closeWS(state.ws.test);
@@ -167,6 +215,13 @@ export async function stopTest() {
   log($("testLog"), "Stop requested");
 }
 
+/**
+ * Request re-zeroing during test mode.
+ *
+ * The backend will warm up + collect new zeros and then continue streaming snapshots.
+ *
+ * @returns {Promise<void>}
+ */
 export async function zeroTest() {
   await apiJSON("/api/test/zero");
   log($("testLog"), "Re-zeroing requested");

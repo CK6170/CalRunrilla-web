@@ -1,3 +1,10 @@
+/**
+ * Global UI state.
+ *
+ * This is a deliberately simple state container (no framework) shared by all UI
+ * modules. Mutations are done directly and reflected via explicit render/update
+ * calls in feature modules.
+ */
 export const state = {
   configId: null,
   connected: false,
