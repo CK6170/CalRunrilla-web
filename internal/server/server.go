@@ -82,6 +82,9 @@ func New(webDir string) *Server {
 
 	// API
 	s.mux.HandleFunc("/api/health", s.handleHealth)
+	// Debug helpers for inspecting the in-memory ConfigStore (local-only server).
+	s.mux.HandleFunc("/api/debug/store", s.handleDebugStoreList)
+	s.mux.HandleFunc("/api/debug/store/raw", s.handleDebugStoreRaw)
 	s.mux.HandleFunc("/api/upload/config", s.handleUploadConfig)
 	s.mux.HandleFunc("/api/upload/calibrated", s.handleUploadCalibrated)
 	s.mux.HandleFunc("/api/connect", s.handleConnect)
@@ -1030,6 +1033,46 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filepath.Base(name)))
+	w.WriteHeader(200)
+	_, _ = w.Write(rec.Raw)
+}
+
+// handleDebugStoreList returns metadata for everything currently stored in memory.
+//
+// Response shape:
+//
+//	{ "count": number, "items": ConfigRecordInfo[] }
+func (s *Server) handleDebugStoreList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.NotFound(w, r)
+		return
+	}
+	items := s.store.List()
+	s.writeJSON(w, 200, map[string]interface{}{
+		"count": len(items),
+		"items": items,
+	})
+}
+
+// handleDebugStoreRaw writes the raw stored JSON for a given id directly to the response.
+// This makes it easy to "see" what is currently in ConfigStore using a browser.
+func (s *Server) handleDebugStoreRaw(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.NotFound(w, r)
+		return
+	}
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		s.writeJSON(w, 400, APIError{Error: "missing id"})
+		return
+	}
+	rec, ok := s.store.Get(id)
+	if !ok {
+		s.writeJSON(w, 404, APIError{Error: "not found"})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(200)
 	_, _ = w.Write(rec.Raw)
 }

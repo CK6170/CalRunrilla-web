@@ -13,7 +13,9 @@ import { closeWS, connectWS } from "./lib/ws.js";
 function setTestInfoLine() {
   const parts = [];
   if (state.testZeroLineBase) parts.push(state.testZeroLineBase);
-  if (state.testRatePerBar > 0) parts.push(`Rate: ${state.testRatePerBar.toFixed(1)}/s/bar`);
+  // Snapshot messages include all bars in one payload, so this is "snapshots per second"
+  // for the whole system (each bar updates at the same cadence).
+  if (state.testRatePerBar > 0) parts.push(`Rate: ${state.testRatePerBar.toFixed(1)}/s`);
   $("testZeros").textContent = parts.join("  |  ");
 }
 
@@ -112,15 +114,15 @@ export async function startTest() {
       }
     }
     if (msg.type === "snapshot") {
-      // Sampling rate: snapshots per second divided by number of bars
+      // Sampling rate: snapshots per second.
+      // NOTE: A snapshot contains data for *all* bars, so dividing by bar count would
+      // incorrectly reduce the reported rate.
       const now = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
       const last = state.testLastSnapMs || 0;
       const dt = now - last;
       state.testLastSnapMs = now;
-      const perBar = msg.data?.perBarLCWeight || [];
-      const nbars = Math.max(1, perBar.length || 1);
       if (dt > 1 && dt < 5000) {
-        const inst = (1000 / dt) / nbars;
+        const inst = (1000 / dt);
         // light smoothing to reduce jitter
         state.testRatePerBar = state.testRatePerBar ? (state.testRatePerBar * 0.8 + inst * 0.2) : inst;
         setTestInfoLine();

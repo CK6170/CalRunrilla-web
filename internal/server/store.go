@@ -39,6 +39,15 @@ type ConfigStore struct {
 	m  map[string]*ConfigRecord
 }
 
+// ConfigRecordInfo is a safe, JSON-friendly view of a stored record for debugging.
+// It intentionally excludes the raw bytes to keep list responses small.
+type ConfigRecordInfo struct {
+	ID       string `json:"id"`
+	Kind     string `json:"kind"`
+	Filename string `json:"filename,omitempty"`
+	Bytes    int    `json:"bytes"`
+}
+
 // NewConfigStore constructs an empty in-memory store.
 func NewConfigStore() *ConfigStore {
 	return &ConfigStore{m: make(map[string]*ConfigRecord)}
@@ -64,6 +73,26 @@ func (s *ConfigStore) Get(id string) (*ConfigRecord, bool) {
 	defer s.mu.RUnlock()
 	r, ok := s.m[id]
 	return r, ok
+}
+
+// List returns metadata for all stored records.
+// The ordering is unspecified (map iteration order).
+func (s *ConfigStore) List() []ConfigRecordInfo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]ConfigRecordInfo, 0, len(s.m))
+	for _, r := range s.m {
+		if r == nil {
+			continue
+		}
+		out = append(out, ConfigRecordInfo{
+			ID:       r.ID,
+			Kind:     string(r.Kind),
+			Filename: r.Filename,
+			Bytes:    len(r.Raw),
+		})
+	}
+	return out
 }
 
 // Update safely mutates an existing record under a write lock.
