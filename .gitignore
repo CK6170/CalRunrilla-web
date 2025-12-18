@@ -17,3 +17,7 @@ pkg/
 
 # Others
 *.version
+
+# Backups / temp
+*.bak
+*.bak-*

@@ -4,13 +4,17 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Calrunrilla Web UI</title>
-    <link rel="stylesheet" href="/assets/style.css" />
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+    <link rel="shortcut icon" href="/assets/favicon.svg" />
+    <link rel="stylesheet" href="/assets/style.css?v=2025-12-18-2" />
   </head>
   <body>
     <div class="app">
       <header class="topbar">
         <div class="brand">
-          <div class="logo">CR</div>
+          <div class="logo">
+            <img class="logoImg" src="/assets/favicon.svg" alt="Calrunrilla" />
+          </div>
           <div>
             <div class="title">Calrunrilla</div>
             <div class="subtitle">Serial backend + web UI</div>
@@ -21,41 +25,48 @@
 
       <main class="content">
         <section class="card" id="entryCard">
-          <h2>Entry</h2>
-          <p class="muted">Upload your <code>config.json</code>, connect to the device, then choose a mode.</p>
+          <div style="display:flex;gap:16px;align-items:flex-start;">
+            <div style="flex:1;min-width:0;">
+              <h2>Entry</h2>
+              <p class="muted" id="entryHelp">Upload your <code>config.json</code>, connect to the device, then choose a mode.</p>
 
-          <div class="row">
-            <label class="file">
-              <input id="configFile" type="file" accept=".json" />
-              <span>Choose config.json</span>
-            </label>
-            <button class="btn primary" id="btnUploadConnect">Upload + Connect</button>
-            <button class="btn" id="btnDisconnect">Disconnect</button>
+              <div class="row">
+                <label class="file">
+                  <input id="configFile" type="file" accept=".json" />
+                  <span>Choose config.json</span>
+                </label>
+                <button class="btn primary" id="btnUploadConnect">Upload + Connect</button>
+                <button class="btn" id="btnDisconnect">Disconnect</button>
+              </div>
+
+              <div class="row">
+                <button class="btn" id="goCalibration">Calibration</button>
+                <button class="btn" id="goTest">Test</button>
+                <button class="btn" id="goFlash">Flash</button>
+              </div>
+
+              <div class="divider"></div>
+              <div class="log" id="entryLog"></div>
+            </div>
+
+            <div style="width:360px;max-width:40%;min-width:260px;" id="entryParams"></div>
           </div>
-
-          <div class="row">
-            <button class="btn" id="goCalibration">Calibration</button>
-            <button class="btn" id="goTest">Test</button>
-            <button class="btn" id="goFlash">Flash</button>
-          </div>
-
-          <div class="divider"></div>
-          <div class="log" id="entryLog"></div>
         </section>
 
         <section class="card hidden" id="calibrationCard">
           <div class="cardHeader">
             <h2>Calibration</h2>
-            <div class="spacer"></div>
-            <button class="btn" id="calBack">Back</button>
           </div>
           <div class="muted" id="calStepText">Loading plan…</div>
           <div class="row">
-            <button class="btn" id="calPrev">Prev</button>
-            <button class="btn" id="calNext">Next</button>
-            <button class="btn primary" id="calStartStep">Start step</button>
+            <button class="btn primary" id="calStartContinue">Start</button>
+            <button class="btn danger" id="calAbort">Abort</button>
+            <span class="muted" id="calProgress"></span>
           </div>
-          <pre class="mono" id="calLive"></pre>
+          <div style="display:flex;gap:16px;min-height:100px;">
+            <div style="flex:1;min-width:0;" id="calTable"></div>
+            <div style="flex:1;min-width:0;" id="calAveraged"></div>
+          </div>
           <div class="log" id="calLog"></div>
         </section>
 
@@ -68,9 +79,40 @@
           <div class="row">
             <button class="btn primary" id="testStart">Start</button>
             <button class="btn" id="testStop">Stop</button>
+            <button class="btn" id="testZero">Zero</button>
+            <label class="pill" style="display:flex;gap:8px;align-items:center;">
+              <input id="testDebug" type="checkbox" />
+              <span>Debug snapshot</span>
+            </label>
+            <label class="pill" style="display:flex;gap:8px;align-items:center;">
+              <span>Tick</span>
+              <select id="testTickMs">
+                <option value="25">25ms</option>
+                <option value="50" selected>50ms</option>
+                <option value="75">75ms</option>
+                <option value="100">100ms</option>
+                <option value="150">150ms</option>
+                <option value="200">200ms</option>
+              </select>
+            </label>
+            <label class="pill" style="display:flex;gap:8px;align-items:center;">
+              <span>ADC timeout</span>
+              <select id="testADTimeoutMs">
+                <option value="25">25ms</option>
+                <option value="50">50ms</option>
+                <option value="75">75ms</option>
+                <option value="100" selected>100ms</option>
+                <option value="150">150ms</option>
+                <option value="200">200ms</option>
+                <option value="300">300ms</option>
+              </select>
+            </label>
           </div>
           <div class="muted" id="testZeros"></div>
-          <div class="totals" id="testTotals"></div>
+          <div class="totalsBar">
+            <div class="totals" id="testTotals"></div>
+            <button class="btn" id="testTotalsToggle" title="Expand totals">+</button>
+          </div>
           <div id="testTable"></div>
           <div class="log" id="testLog"></div>
         </section>
@@ -90,13 +132,15 @@
             <button class="btn primary" id="flashUploadStart">Upload + Flash</button>
             <button class="btn" id="flashStop">Stop</button>
           </div>
+          <div id="flashPreview"></div>
           <div class="muted" id="flashProgress"></div>
           <div class="log" id="flashLog"></div>
         </section>
       </main>
     </div>
 
-    <script type="module" src="/assets/app.js"></script>
+    <!-- cache-bust so changes always load without hard refresh -->
+    <script type="module" src="/assets/app.js?v=2025-12-18-6"></script>
   </body>
 </html>
 

@@ -1,6 +1,6 @@
 {
   "SERIAL": {
-    "PORT": "COM4",
+    "PORT": "COM5",
     "BAUDRATE": 115200,
     "COMMAND": "M"
   },

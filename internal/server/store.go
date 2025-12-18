@@ -21,6 +21,8 @@ type ConfigRecord struct {
 	Kind configKind
 	Raw  []byte
 	P    *models.PARAMETERS
+	// Original filename from upload (best-effort, may be empty)
+	Filename string
 }
 
 type ConfigStore struct {
@@ -32,12 +34,12 @@ func NewConfigStore() *ConfigStore {
 	return &ConfigStore{m: make(map[string]*ConfigRecord)}
 }
 
-func (s *ConfigStore) Put(kind configKind, raw []byte, p *models.PARAMETERS) (*ConfigRecord, error) {
+func (s *ConfigStore) Put(kind configKind, raw []byte, p *models.PARAMETERS, filename string) (*ConfigRecord, error) {
 	id, err := newID()
 	if err != nil {
 		return nil, err
 	}
-	rec := &ConfigRecord{ID: id, Kind: kind, Raw: raw, P: p}
+	rec := &ConfigRecord{ID: id, Kind: kind, Raw: raw, P: p, Filename: filename}
 	s.mu.Lock()
 	s.m[id] = rec
 	s.mu.Unlock()
@@ -51,6 +53,17 @@ func (s *ConfigStore) Get(id string) (*ConfigRecord, bool) {
 	return r, ok
 }
 
+// Update safely mutates an existing record under a write lock.
+func (s *ConfigStore) Update(id string, fn func(r *ConfigRecord) error) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.m[id]
+	if !ok || r == nil {
+		return fmt.Errorf("not found")
+	}
+	return fn(r)
+}
+
 func newID() (string, error) {
 	var b [12]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -58,4 +71,3 @@ func newID() (string, error) {
 	}
 	return hex.EncodeToString(b[:]), nil
 }
-

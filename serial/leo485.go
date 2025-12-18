@@ -55,8 +55,15 @@ func (l *Leo485) Open() error { return nil }
 func (l *Leo485) Close() error { return l.Serial.Close() }
 
 func (l *Leo485) GetADs(index int) ([]uint64, error) {
+	// Keep calibration/other flows lenient to avoid turning transient parse issues into hard failures.
+	return l.GetADsWithTimeout(index, 200)
+}
+
+// GetADsWithTimeout reads ADCs using a custom timeout (in ms). Useful for higher-rate
+// polling in test mode while keeping calibration reads more conservative.
+func (l *Leo485) GetADsWithTimeout(index int, timeoutMS int) ([]uint64, error) {
 	cmd := GetCommand(l.Bars[index].ID, []byte(l.SerialConfig.COMMAND))
-	response, err := sendCommand(l.Serial, cmd, 200)
+	response, err := sendCommand(l.Serial, cmd, timeoutMS)
 	if err != nil {
 		return nil, err
 	}
@@ -66,6 +73,28 @@ func (l *Leo485) GetADs(index int) ([]uint64, error) {
 	vals, err := parseValues(response, cmd, l.Bars[index].LCS)
 	if err != nil {
 		return []uint64{}, nil
+	}
+	bruts := make([]uint64, len(vals))
+	for i, v := range vals {
+		bruts[i] = uint64(v.brut)
+	}
+	return bruts, nil
+}
+
+// GetADsStrictWithTimeout is a strict variant for high-rate polling (test mode):
+// if the response is empty or cannot be parsed/validated, it returns an error.
+func (l *Leo485) GetADsStrictWithTimeout(index int, timeoutMS int) ([]uint64, error) {
+	cmd := GetCommand(l.Bars[index].ID, []byte(l.SerialConfig.COMMAND))
+	response, err := sendCommand(l.Serial, cmd, timeoutMS)
+	if err != nil {
+		return nil, err
+	}
+	if len(response) == 0 {
+		return nil, fmt.Errorf("empty response")
+	}
+	vals, err := parseValues(response, cmd, l.Bars[index].LCS)
+	if err != nil {
+		return nil, err
 	}
 	bruts := make([]uint64, len(vals))
 	for i, v := range vals {

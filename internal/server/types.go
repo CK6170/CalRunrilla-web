@@ -25,6 +25,7 @@ type ConnectResponse struct {
 	Port      string `json:"port"`
 	Bars      int    `json:"bars"`
 	LCs       int    `json:"lcs"`
+	Warning   string `json:"warning,omitempty"`
 }
 
 type CalPlanResponse struct {
@@ -42,7 +43,22 @@ type CalStartStepRequest struct {
 	StepIndex int `json:"stepIndex"`
 }
 
+type CalComputeResponse struct {
+	CalibratedID string `json:"calibratedId"`
+}
+
 type FlashStartRequest struct {
 	CalibratedID string `json:"calibratedId"`
 }
 
+type TestStartRequest struct {
+	Debug       bool `json:"debug"`
+	TickMS      int  `json:"tickMs,omitempty"`
+	ADTimeoutMS int  `json:"adTimeoutMs,omitempty"`
+}
+
+type TestConfigRequest struct {
+	Debug       bool `json:"debug"`
+	TickMS      int  `json:"tickMs,omitempty"`
+	ADTimeoutMS int  `json:"adTimeoutMs,omitempty"`
+}

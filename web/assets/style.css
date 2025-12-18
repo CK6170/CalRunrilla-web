@@ -18,6 +18,7 @@ html,body{height:100%}
 body{
   margin:0;
   font-family:var(--sans);
+  font-size:14px;
   color:var(--text);
   background: radial-gradient(1200px 600px at 20% -10%, rgba(96,165,250,.18), transparent 60%),
               radial-gradient(900px 500px at 110% 10%, rgba(34,197,94,.12), transparent 55%),
@@ -40,9 +41,15 @@ code{font-family:var(--mono)}
   background:linear-gradient(135deg,var(--accent),#8b5cf6);
   display:grid;place-items:center;font-weight:800;
 }
+.logoImg{
+  width:30px;
+  height:30px;
+  display:block;
+  border-radius:10px;
+}
 .title{font-weight:750;letter-spacing:.2px}
-.subtitle{font-size:12px;color:var(--muted)}
-.status{font-size:13px;color:var(--muted)}
+.subtitle{font-size:13px;color:var(--muted)}
+.status{font-size:14px;color:var(--muted)}
 
 .content{margin-top:16px;display:grid;gap:14px}
 .card{
@@ -56,7 +63,7 @@ code{font-family:var(--mono)}
 .hidden{display:none}
 h2{margin:0 0 10px 0;font-size:18px}
 p{margin:0 0 12px 0}
-.muted{color:var(--muted);font-size:13px}
+.muted{color:var(--muted);font-size:14px}
 
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:10px 0}
 .btn{
@@ -90,7 +97,7 @@ input[type="text"]{
 
 .log{
   font-family:var(--mono);
-  font-size:12px;
+  font-size:13px;
   white-space:pre-wrap;
   color:#cbd5e1;
   background:rgba(2,6,23,.35);
@@ -101,7 +108,7 @@ input[type="text"]{
 }
 .mono{
   font-family:var(--mono);
-  font-size:12px;
+  font-size:13px;
   white-space:pre-wrap;
   color:#cbd5e1;
   background:rgba(2,6,23,.35);
@@ -111,17 +118,47 @@ input[type="text"]{
   min-height:80px;
 }
 .totals{
-  display:flex;gap:14px;flex-wrap:wrap;
+  display:inline-block;
   padding:10px;border-radius:14px;
   background:rgba(96,165,250,.06);
   border:1px solid rgba(96,165,250,.20);
   margin:10px 0;
 }
+.totalsBar{
+  display:flex;
+  align-items:flex-start;
+  gap:10px;
+}
+.totalsBar #testTotalsToggle{
+  padding:8px 10px;
+  min-width:40px;
+  height:40px;
+}
+.totalsGrid{
+  display:grid;
+  grid-template-columns: 1fr auto;
+  gap:8px 14px;
+  align-items:center;
+}
+.totalsGrid .totalsLabel{color:var(--muted);font-size:12px}
+.totalsGrid .totalsValue{
+  font-family:var(--mono);
+  text-align:right;
+  min-width:70px;
+  font-weight:800;
+}
+
+/* Test totals expand/collapse */
+#testCard.totalsExpanded #testTable{display:none}
+#testCard.totalsExpanded #testTotals{padding:15px}
+#testCard.totalsExpanded .totalsGrid{gap:12px 21px}
+#testCard.totalsExpanded .totalsLabel{font-size:22px}
+#testCard.totalsExpanded .totalsValue{font-size:32px;min-width:140px}
 .pill{
   padding:6px 10px;border-radius:999px;
   border:1px solid var(--border);
   background:rgba(255,255,255,.02);
-  font-size:12px;
+  font-size:13px;
 }
 .tbl{
   width:100%;
@@ -134,7 +171,7 @@ input[type="text"]{
   padding:8px 10px;
   border-bottom:1px solid rgba(34,48,74,.65);
   font-family:var(--mono);
-  font-size:12px;
+  font-size:13px;
 }
 .tbl th{background:rgba(15,23,42,.85);text-align:left;color:#c7d2fe}
 .tbl tr:hover td{background:rgba(96,165,250,.06)}

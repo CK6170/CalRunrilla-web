@@ -1,15 +1,57 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
+	"sync/atomic"
 	"time"
+
+	serialpkg "github.com/CK6170/Calrunrilla-go/serial"
 )
+
+func (s *Server) handleTestConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	var req TestConfigRequest
+	if err := s.readJSON(r, &req); err != nil {
+		s.writeJSON(w, 400, APIError{Error: err.Error()})
+		return
+	}
+	s.dev.mu.Lock()
+	defer s.dev.mu.Unlock()
+	if s.dev.opKind != "test" {
+		s.writeJSON(w, 400, APIError{Error: "test mode not active"})
+		return
+	}
+	atomic.StoreInt64(&s.dev.testTickMS, int64(req.TickMS))
+	atomic.StoreInt64(&s.dev.testADTimeoutMS, int64(req.ADTimeoutMS))
+	if req.Debug {
+		atomic.StoreInt32(&s.dev.testDebug, 1)
+	} else {
+		atomic.StoreInt32(&s.dev.testDebug, 0)
+	}
+	s.writeJSON(w, 200, map[string]bool{"ok": true})
+}
 
 func (s *Server) handleTestStart(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
 		return
+	}
+	// Optional request body: { "debug": true }.
+	// Keep backwards-compat with empty body.
+	var req TestStartRequest
+	if r.Body != nil {
+		b, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		_ = r.Body.Close()
+		if len(bytes.TrimSpace(b)) > 0 {
+			_ = json.Unmarshal(b, &req)
+		}
 	}
 	s.dev.mu.Lock()
 	if s.dev.bars == nil || s.dev.params == nil {
@@ -21,18 +63,77 @@ func (s *Server) handleTestStart(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.dev.opCancel = cancel
 	s.dev.opKind = "test"
+	// Initialize live config used by the running loop.
+	atomic.StoreInt64(&s.dev.testTickMS, int64(req.TickMS))
+	atomic.StoreInt64(&s.dev.testADTimeoutMS, int64(req.ADTimeoutMS))
+	if req.Debug {
+		atomic.StoreInt32(&s.dev.testDebug, 1)
+	} else {
+		atomic.StoreInt32(&s.dev.testDebug, 0)
+	}
 	bars := s.dev.bars
 	p := s.dev.params
-	configID := s.dev.configID
 	s.dev.mu.Unlock()
 
 	go func() {
-		// Note: we don't have the original filename here; pass a dummy ".json" so it reads factors from device if needed.
-		_ = configID
-		if err := ensureFactorsFromDevice(bars, p, "config.json"); err != nil {
-			s.wsTest.Broadcast(WSMessage{Type: "error", Data: map[string]string{"error": err.Error()}})
+		// After calibration flash, bars may still be rebooting / settling. ReadFactors can
+		// succeed but return stale values if queried too quickly. Do a short settle delay
+		// and a few reads; keep the last successful one (similar to the user's manual stop/start).
+		time.Sleep(450 * time.Millisecond)
+
+		// Also drain any leftover bytes sitting in the serial buffer (common right after flash/reboot).
+		// We ignore errors/timeouts here; this is best-effort.
+		for i := 0; i < 3; i++ {
+			_, _ = serialpkg.ReadUntil(bars.Serial, 25)
+		}
+
+		var lastErr error
+		for attempt := 1; attempt <= 3; attempt++ {
+			select {
+			case <-ctx.Done():
+				s.wsTest.Broadcast(WSMessage{Type: "stopped"})
+				return
+			default:
+			}
+			if err := readFactorsFromDevice(bars, p); err != nil {
+				lastErr = err
+			} else {
+				lastErr = nil
+			}
+			if attempt < 3 {
+				time.Sleep(350 * time.Millisecond)
+			}
+		}
+		if lastErr != nil {
+			s.wsTest.Broadcast(WSMessage{Type: "error", Data: map[string]string{"error": lastErr.Error()}})
 			return
 		}
+		// Verify factors were read successfully
+		hasFactors := true
+		for i := 0; i < len(p.BARS); i++ {
+			if len(p.BARS[i].LC) == 0 {
+				hasFactors = false
+				break
+			}
+		}
+		if !hasFactors {
+			s.wsTest.Broadcast(WSMessage{Type: "error", Data: map[string]string{"error": "factors were not read from device"}})
+			return
+		}
+		// Log factors read for debugging
+		factorSummary := make([]map[string]interface{}, len(p.BARS))
+		for i := 0; i < len(p.BARS); i++ {
+			factors := make([]float64, len(p.BARS[i].LC))
+			for j := 0; j < len(p.BARS[i].LC); j++ {
+				factors[j] = float64(p.BARS[i].LC[j].FACTOR)
+			}
+			factorSummary[i] = map[string]interface{}{
+				"bar":     i + 1,
+				"factors": factors,
+			}
+		}
+		s.wsTest.Broadcast(WSMessage{Type: "factorsRead", Data: map[string]interface{}{"bars": len(p.BARS), "factors": factorSummary}})
+
 		zeros, err := collectAveragedZeros(ctx, bars, p, p.AVG, func(z map[string]int) {
 			s.wsTest.Broadcast(WSMessage{
 				Type: "zerosProgress",
@@ -44,25 +145,179 @@ func (s *Server) handleTestStart(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.wsTest.Broadcast(WSMessage{Type: "zerosDone"})
+		// Log zeros that were collected
+		nlcs := bars.NLCs
+		zerosSummary := make([]map[string]interface{}, len(p.BARS))
+		for i := 0; i < len(p.BARS); i++ {
+			barZeros := make([]int64, nlcs)
+			for j := 0; j < nlcs; j++ {
+				idx := i*nlcs + j
+				if idx < len(zeros) {
+					barZeros[j] = zeros[idx]
+				}
+			}
+			zerosSummary[i] = map[string]interface{}{
+				"bar":   i + 1,
+				"zeros": barZeros,
+			}
+		}
+		s.wsTest.Broadcast(WSMessage{Type: "zerosSummary", Data: map[string]interface{}{"zeros": zerosSummary}})
 
-		t := time.NewTicker(250 * time.Millisecond)
-		defer t.Stop()
+		// Store zeros in device session
+		s.dev.testZerosMu.Lock()
+		s.dev.testZeros = zeros
+		s.dev.testZerosMu.Unlock()
+
+		// Test snapshot cadence. Lower values increase serial load significantly.
+		timer := time.NewTimer(50 * time.Millisecond)
+		defer timer.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				s.wsTest.Broadcast(WSMessage{Type: "stopped"})
 				return
-			case <-t.C:
-				snap, err := computeTestSnapshot(bars, p, zeros)
+			case newZeros := <-s.dev.testZeroCh:
+				// Update zeros when re-zeroed
+				s.dev.testZerosMu.Lock()
+				s.dev.testZeros = newZeros
+				s.dev.testZerosMu.Unlock()
+			case <-timer.C:
+				// Skip polling if zero collection is in progress
+				if atomic.LoadInt32(&s.dev.testZeroing) != 0 {
+					// Zero collection is active, skip this polling cycle
+					// reschedule using latest tick
+					tickMS := atomic.LoadInt64(&s.dev.testTickMS)
+					if tickMS <= 0 {
+						tickMS = 50
+					}
+					if tickMS < 10 {
+						tickMS = 10
+					}
+					if tickMS > 1000 {
+						tickMS = 1000
+					}
+					timer.Reset(time.Duration(tickMS) * time.Millisecond)
+					continue
+				}
+
+				// Read current zeros with read lock
+				s.dev.testZerosMu.RLock()
+				currentZeros := make([]int64, len(s.dev.testZeros))
+				copy(currentZeros, s.dev.testZeros)
+				s.dev.testZerosMu.RUnlock()
+
+				includeDebug := atomic.LoadInt32(&s.dev.testDebug) != 0
+				adTimeout := int(atomic.LoadInt64(&s.dev.testADTimeoutMS))
+				snap, err := computeTestSnapshot(bars, p, currentZeros, includeDebug, adTimeout)
 				if err != nil {
+					// Log error but don't stop polling - might be transient
 					s.wsTest.Broadcast(WSMessage{Type: "error", Data: map[string]string{"error": err.Error()}})
-					return
+					// Continue polling instead of returning
+					// reschedule using latest tick
+					tickMS := atomic.LoadInt64(&s.dev.testTickMS)
+					if tickMS <= 0 {
+						tickMS = 50
+					}
+					if tickMS < 10 {
+						tickMS = 10
+					}
+					if tickMS > 1000 {
+						tickMS = 1000
+					}
+					timer.Reset(time.Duration(tickMS) * time.Millisecond)
+					continue
 				}
 				s.wsTest.Broadcast(WSMessage{
 					Type: "snapshot",
 					Data: snap,
 				})
+				// reschedule using latest tick
+				tickMS := atomic.LoadInt64(&s.dev.testTickMS)
+				if tickMS <= 0 {
+					tickMS = 50
+				}
+				if tickMS < 10 {
+					tickMS = 10
+				}
+				if tickMS > 1000 {
+					tickMS = 1000
+				}
+				timer.Reset(time.Duration(tickMS) * time.Millisecond)
 			}
+		}
+	}()
+
+	s.writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleTestZero(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	s.dev.mu.Lock()
+	if s.dev.bars == nil || s.dev.params == nil {
+		s.dev.mu.Unlock()
+		s.writeJSON(w, 400, APIError{Error: "not connected"})
+		return
+	}
+	if s.dev.opKind != "test" {
+		s.dev.mu.Unlock()
+		s.writeJSON(w, 400, APIError{Error: "test mode not active"})
+		return
+	}
+	bars := s.dev.bars
+	p := s.dev.params
+	s.dev.mu.Unlock()
+
+	go func() {
+		// Set flag to prevent test loop from reading during zero collection
+		atomic.StoreInt32(&s.dev.testZeroing, 1)
+		defer atomic.StoreInt32(&s.dev.testZeroing, 0)
+
+		// Use background context so zero collection doesn't interfere with test loop
+		ctx := context.Background()
+
+		zeros, err := collectAveragedZeros(ctx, bars, p, p.AVG, func(z map[string]int) {
+			s.wsTest.Broadcast(WSMessage{
+				Type: "zerosProgress",
+				Data: z,
+			})
+		})
+		if err != nil {
+			s.wsTest.Broadcast(WSMessage{Type: "error", Data: map[string]string{"error": "zero collection failed: " + err.Error()}})
+			return
+		}
+		s.wsTest.Broadcast(WSMessage{Type: "zerosDone"})
+
+		// Log zeros that were collected
+		nlcs := bars.NLCs
+		zerosSummary := make([]map[string]interface{}, len(p.BARS))
+		for i := 0; i < len(p.BARS); i++ {
+			barZeros := make([]int64, nlcs)
+			for j := 0; j < nlcs; j++ {
+				idx := i*nlcs + j
+				if idx < len(zeros) {
+					barZeros[j] = zeros[idx]
+				}
+			}
+			zerosSummary[i] = map[string]interface{}{
+				"bar":   i + 1,
+				"zeros": barZeros,
+			}
+		}
+		s.wsTest.Broadcast(WSMessage{Type: "zerosSummary", Data: map[string]interface{}{"zeros": zerosSummary}})
+
+		// Store zeros in device session
+		s.dev.testZerosMu.Lock()
+		s.dev.testZeros = zeros
+		s.dev.testZerosMu.Unlock()
+
+		// Signal test loop that zeros have been updated
+		select {
+		case s.dev.testZeroCh <- zeros:
+		default:
+			// Channel full or no receiver, that's okay
 		}
 	}()
 
@@ -111,4 +366,3 @@ func (s *Server) handleFlashStart(w http.ResponseWriter, r *http.Request) {
 
 	s.writeJSON(w, 200, map[string]bool{"ok": true})
 }
-

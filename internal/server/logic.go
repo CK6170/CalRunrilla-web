@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/CK6170/Calrunrilla-go/matrix"
@@ -115,11 +114,10 @@ func sampleADCs(ctx context.Context, bars *serialpkg.Leo485, ignoreTarget, avgTa
 			"avgTarget":    avgTarget,
 			"current":      cur,
 		})
-		time.Sleep(5 * time.Millisecond)
+		time.Sleep(250 * time.Millisecond)
 	}
 
 	phase = "averaging"
-	avgDone := 0
 	sums := make([][]int64, nBars)
 	counts := make([][]int64, nBars)
 	for i := 0; i < nBars; i++ {
@@ -127,20 +125,60 @@ func sampleADCs(ctx context.Context, bars *serialpkg.Leo485, ignoreTarget, avgTa
 		counts[i] = make([]int64, nLCs)
 	}
 
-	for avgDone < avgTarget {
+	// Averaging is per-LC: each LC must collect avgTarget non-zero samples.
+	// Progress (avgDone) is the minimum count across all LCs.
+	minCount := func() int {
+		if nBars == 0 || nLCs == 0 {
+			return 0
+		}
+		m := int(^uint(0) >> 1) // max int
+		for i := 0; i < nBars; i++ {
+			for lc := 0; lc < nLCs; lc++ {
+				c := int(counts[i][lc])
+				if c < m {
+					m = c
+				}
+			}
+		}
+		if m == int(^uint(0)>>1) {
+			return 0
+		}
+		return m
+	}
+
+	for minCount() < avgTarget {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		default:
 		}
 		cur := readOnce()
-		avgDone++
+
+		// Add only non-zero ADC values to the averaging (per LC).
+		// If a value is 0, do not add it and do not increment that LC's count.
+		hasAnyNonZero := false
 		for i := 0; i < nBars; i++ {
 			for lc := 0; lc < nLCs; lc++ {
-				sums[i][lc] += cur[i][lc]
-				counts[i][lc]++
+				v := cur[i][lc]
+				if v != 0 {
+					hasAnyNonZero = true
+					sums[i][lc] += v
+					counts[i][lc]++
+				}
 			}
 		}
+
+		// Calculate current averages for display
+		currentAvg := make([][]int64, nBars)
+		for i := 0; i < nBars; i++ {
+			currentAvg[i] = make([]int64, nLCs)
+			for lc := 0; lc < nLCs; lc++ {
+				if counts[i][lc] > 0 {
+					currentAvg[i][lc] = sums[i][lc] / counts[i][lc]
+				}
+			}
+		}
+		avgDone := minCount()
 		emit(map[string]interface{}{
 			"phase":        phase,
 			"ignoreDone":   ignoreTarget,
@@ -148,8 +186,10 @@ func sampleADCs(ctx context.Context, bars *serialpkg.Leo485, ignoreTarget, avgTa
 			"avgDone":      avgDone,
 			"avgTarget":    avgTarget,
 			"current":      cur,
+			"averaged":     currentAvg,
 		})
-		time.Sleep(5 * time.Millisecond)
+		_ = hasAnyNonZero // kept for easy future debugging
+		time.Sleep(250 * time.Millisecond)
 	}
 
 	final := make([][]int64, nBars)
@@ -232,13 +272,12 @@ func computeZerosAndFactors(adv, ad0 *matrix.Matrix, p *models.PARAMETERS) error
 	return nil
 }
 
-func ensureFactorsFromDevice(bars *serialpkg.Leo485, p *models.PARAMETERS, configFilename string) error {
+// readFactorsFromDevice reads factors from the device using ReadFactors and populates p.BARS[].LC
+func readFactorsFromDevice(bars *serialpkg.Leo485, p *models.PARAMETERS) error {
 	if bars == nil || p == nil {
 		return fmt.Errorf("not connected")
 	}
-	if strings.HasSuffix(strings.ToLower(configFilename), "_calibrated.json") {
-		return nil
-	}
+	// Always read factors from device using ReadFactors
 	for i := 0; i < len(bars.Bars); i++ {
 		factors, err := bars.ReadFactors(i)
 		if err != nil || len(factors) == 0 {
@@ -256,6 +295,27 @@ func ensureFactorsFromDevice(bars *serialpkg.Leo485, p *models.PARAMETERS, confi
 		}
 	}
 	return nil
+}
+
+func ensureFactorsFromDevice(bars *serialpkg.Leo485, p *models.PARAMETERS, configFilename string) error {
+	if bars == nil || p == nil {
+		return fmt.Errorf("not connected")
+	}
+	// Check if factors are already present in the config (from a calibrated file).
+	// If all bars have LC arrays with at least one element, assume factors are already loaded.
+	hasFactors := true
+	for i := 0; i < len(p.BARS); i++ {
+		if len(p.BARS[i].LC) == 0 {
+			hasFactors = false
+			break
+		}
+	}
+	if hasFactors {
+		// Factors already present, no need to read from device
+		return nil
+	}
+	// Read factors from device
+	return readFactorsFromDevice(bars, p)
 }
 
 func collectAveragedZeros(ctx context.Context, bars *serialpkg.Leo485, p *models.PARAMETERS, samples int, onProgress func(map[string]int)) ([]int64, error) {
@@ -328,7 +388,7 @@ func collectAveragedZeros(ctx context.Context, bars *serialpkg.Leo485, p *models
 	return avg, nil
 }
 
-func computeTestSnapshot(bars *serialpkg.Leo485, p *models.PARAMETERS, zerosFlat []int64) (map[string]interface{}, error) {
+func computeTestSnapshot(bars *serialpkg.Leo485, p *models.PARAMETERS, zerosFlat []int64, includeDebug bool, adTimeoutMS int) (map[string]interface{}, error) {
 	if bars == nil || p == nil {
 		return nil, fmt.Errorf("not connected")
 	}
@@ -350,7 +410,19 @@ func computeTestSnapshot(bars *serialpkg.Leo485, p *models.PARAMETERS, zerosFlat
 	grand := 0.0
 
 	for i := 0; i < nb; i++ {
-		ad, err := bars.GetADs(i)
+		// Test mode ADC timeout: caller-controlled (clamped).
+		to := adTimeoutMS
+		if to <= 0 {
+			to = 100
+		}
+		if to < 25 {
+			to = 25
+		}
+		if to > 500 {
+			to = 500
+		}
+		// Use strict reads in test mode so partial/invalid serial frames don't produce "wrong" snapshots.
+		ad, err := bars.GetADsStrictWithTimeout(i, to)
 		if err != nil {
 			return nil, fmt.Errorf("bar %d read error: %w", i+1, err)
 		}
@@ -376,11 +448,37 @@ func computeTestSnapshot(bars *serialpkg.Leo485, p *models.PARAMETERS, zerosFlat
 		grand += total
 	}
 
-	return map[string]interface{}{
+	var debugInfo []map[string]interface{}
+	if includeDebug {
+		// Build debug info showing factors + zeros (this allocates each snapshot)
+		debugInfo = make([]map[string]interface{}, nb)
+		for i := 0; i < nb; i++ {
+			barDebug := make(map[string]interface{})
+			factors := make([]float64, nlcs)
+			zeros := make([]int64, nlcs)
+			for lc := 0; lc < nlcs; lc++ {
+				if lc < len(p.BARS[i].LC) {
+					factors[lc] = float64(p.BARS[i].LC[lc].FACTOR)
+				} else {
+					factors[lc] = 1.0
+				}
+				zeros[lc] = zerosPerBar[i][lc]
+			}
+			barDebug["bar"] = i + 1
+			barDebug["factors"] = factors
+			barDebug["zeros"] = zeros
+			debugInfo[i] = barDebug
+		}
+	}
+
+	out := map[string]interface{}{
 		"perBarLCWeight": perBarLCWeight,
 		"perBarTotal":    perBarTotal,
 		"grandTotal":     grand,
 		"perBarADC":      perBarADC,
-	}, nil
+	}
+	if includeDebug {
+		out["debug"] = debugInfo
+	}
+	return out, nil
 }
-
