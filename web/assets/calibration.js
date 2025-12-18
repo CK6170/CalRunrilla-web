@@ -95,6 +95,10 @@ export function renderCalMatricesPretty(payload) {
     return;
   }
 
+  // Helper renderers for "structured" payloads:
+  // - mkTable: matrix-like 2D arrays (used for ad0/adv/diff)
+  // - mkVector: 1D arrays (used for W/zeros/check)
+  // - mkFactors: rows with numeric factor + IEEE754 hex string (nice for flashing verification)
   const mkTable = (rows, cols, values) => {
     const v = values || [];
     let html = `<div style="overflow:auto;max-height:360px;border:1px solid var(--border);border-radius:10px;">`;
@@ -143,6 +147,9 @@ export function renderCalMatricesPretty(payload) {
   const ad0 = structured.ad0, adv = structured.adv, diff = structured.diff;
   const w = structured.w, zeros = structured.zeros, factors = structured.factors, check = structured.check;
 
+  // We use <details> so the UI stays readable even for large matrices:
+  // the user can expand only what they need, while keeping the "Zeros" + "Factors"
+  // sections visible by default.
   let html = `<div class="pill" style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">` +
              `<span>Matrix calculation</span>` +
              `<button class="btn" id="btnCopyMatrixRaw" style="padding:6px 10px;">Copy raw</button>` +
@@ -161,6 +168,7 @@ export function renderCalMatricesPretty(payload) {
   const btn = $("btnCopyMatrixRaw");
   if (btn) {
     btn.onclick = async () => {
+      // Copying raw text is helpful for sending diagnostics / verifying against the CLI output.
       try { await navigator.clipboard.writeText(raw); } catch {}
     };
   }
@@ -218,7 +226,9 @@ export function renderCalADC(data, phaseOverride = null) {
 
   state.calPhase = phase;
 
-  // Set progress text based on phase with colors
+  // Set progress text based on phase with colors.
+  // These phases are produced by the backend sampler (warmup vs averaging) and
+  // are purely informational for the user.
   let progressText = "";
   let textColor = "";
   if (phase === "ignoring") {
@@ -229,7 +239,8 @@ export function renderCalADC(data, phaseOverride = null) {
     progressText = `Averaging: ${avgDone}/${avgTarget}`;
   }
 
-  // During warmup/averaging, instruction line should show "Wait.. Gathering data from ..."
+  // During warmup/averaging, override the instruction line with "Wait.." so the
+  // user doesn't press Continue thinking they're supposed to act mid-sampling.
   if ((phase === "ignoring" || phase === "averaging") && !state.calAwaitingClear && !state.calFinalStage) {
     const st = state.calSteps[state.calIndex];
     const wt = calWaitTextForStep(st);
@@ -241,7 +252,7 @@ export function renderCalADC(data, phaseOverride = null) {
     }
   }
 
-  // Only update progress text if it actually changed to avoid flickering
+  // Only update progress text if it actually changed to avoid flickering.
   if (progressText !== state.calLastProgress) {
     state.calLastProgress = progressText;
     $("calProgress").textContent = progressText;
@@ -260,6 +271,8 @@ export function renderCalADC(data, phaseOverride = null) {
       const bar = current[bi] || [];
       for (let li = 0; li < bar.length; li++) {
         const adc = bar[li] ?? 0;
+        // Colorize live values while sampling to give users confidence that
+        // warmup/averaging is active. When idle, keep default styling.
         const colorStyle = (phase === "ignoring" || phase === "averaging")
           ? (phase === "ignoring" ? "color:#fb923c" : "color:#7dd3fc")
           : "";
@@ -272,6 +285,8 @@ export function renderCalADC(data, phaseOverride = null) {
   }
 
   const averagedContainer = $("calAveraged");
+  // Keep the matrix panel intact once computation has happened. Polling/rendering
+  // should not wipe it unless the user explicitly aborts or restarts calibration.
   if (!state.calMatricesText) averagedContainer.innerHTML = "";
 }
 
@@ -299,6 +314,9 @@ export async function pollCalADC() {
       if (hasAnyNonZero) break;
     }
 
+    // Some devices/serial reads can momentarily return zeros/empty frames.
+    // To avoid the UI "blinking" to blank/zero between good samples, we reuse the
+    // last known-good `current` data if this poll returned all zeros.
     const renderData = {
       ...data,
       current: hasAnyNonZero ? current : (state.calLastData?.current || current),
@@ -306,6 +324,8 @@ export async function pollCalADC() {
     state.calPhase = renderData.phase || "";
     if (hasAnyNonZero) state.calLastData = renderData;
 
+    // Throttle DOM work to at most one render per animation frame.
+    // This reduces layout thrash and keeps the table smooth at 250ms polling.
     if (!state.calRenderPending) {
       state.calRenderPending = true;
       requestAnimationFrame(() => {
@@ -394,6 +414,9 @@ export async function startCalStep() {
   }
 
   if (state.calFinalStage === "final_clear") {
+    // After the last sampling step, we require a final "clear bays" confirmation.
+    // Only then do we call /compute so the computed calibration corresponds to a
+    // known "empty" baseline and the user isn't still moving weights around.
     $("calStartContinue").disabled = true;
     $("calStepText").textContent = "Computing zeros + factors…";
     try {
@@ -403,6 +426,7 @@ export async function startCalStep() {
       triggerDownloadCalibrated(state.calibratedId);
       state.calFinalStage = "computed_ready";
       try {
+        // Pull matrices/diagnostics for the right panel (best-effort).
         const mres = await fetch("/api/calibration/matrices");
         if (mres.ok) {
           const mdata = await mres.json();
@@ -420,6 +444,7 @@ export async function startCalStep() {
     return;
   }
   if (state.calFinalStage === "computed_ready") {
+    // Compute is done and calibrated JSON has been downloaded. Next step is flash.
     $("calStartContinue").disabled = true;
     $("calStepText").textContent = "Flashing device…";
     state.calFinalStage = "flashing";
@@ -430,6 +455,8 @@ export async function startCalStep() {
   state.calAwaitingClear = false;
   renderCalStep();
 
+  // Each call replaces the previous WS (connectWS closes prior socket). We keep the
+  // socket open for the duration of sampling/flash so we can stream progress.
   connectWS("cal", "/ws/calibration", (msg) => {
     if (msg.type === "sample") {
       const sampleData = msg.data || {};
@@ -446,6 +473,8 @@ export async function startCalStep() {
         if (hasValidData) break;
       }
 
+      // `renderData` is a stable shape for renderCalADC().
+      // We tolerate missing counters so the UI doesn't crash on partial messages.
       const renderData = {
         phase: sampleData.phase || "",
         avgDone: sampleData.avgDone !== undefined ? sampleData.avgDone : 0,
@@ -467,11 +496,14 @@ export async function startCalStep() {
       }
     }
     if (msg.type === "flashProgress") {
+      // Calibration flash progress is streamed on the same WS channel.
       const p = msg.data || {};
       const bi = Number.isFinite(p.barIndex) ? (p.barIndex + 1) : null;
       log($("calLog"), `Flash: ${p.stage} ${bi ? `bar=${bi} ` : ""}${p.message || ""}`.trim());
     }
     if (msg.type === "stepDone") {
+      // Backend signals that a step's sampling is complete. We move to "awaiting clear"
+      // to force a physical confirmation between steps (especially between weight moves).
       log($("calLog"), `Step done: ${msg.data.label}`);
       state.calPhase = "";
       state.calLastProgress = "";
@@ -509,12 +541,14 @@ export async function startCalStep() {
       if (doneStepIndex < state.calSteps.length - 1) {
         state.calIndex = doneStepIndex + 1;
       } else {
+        // End of sampling plan -> transition to the "final clear" stage.
         state.calIndex = state.calSteps.length;
         state.calFinalStage = "final_clear";
         $("calStartContinue").disabled = false;
       }
     }
     if (msg.type === "done") {
+      // Flash completed successfully.
       state.calibratedId = msg.data.calibratedId || state.calibratedId;
       log($("calLog"), `Flash complete. calibratedId=${state.calibratedId}`);
       triggerDownloadCalibrated(state.calibratedId);
@@ -524,6 +558,8 @@ export async function startCalStep() {
       $("calStepText").textContent = "Done. File downloaded. Press Finish to return to Entry.";
     }
     if (msg.type === "error") {
+      // Errors can happen during sampling or flashing. For flashing errors we still
+      // try to download the calibrated file so the user can recover via Flash mode.
       const e = msg.data || {};
       if (e.calibratedId && !state.calibratedId) state.calibratedId = e.calibratedId;
       log($("calLog"), `ERROR: ${e.error || "unknown error"}`);
