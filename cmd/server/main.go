@@ -1,3 +1,18 @@
+// Command `calrunrilla-server` runs the CalRunrilla web UI + HTTP API locally.
+//
+// It serves static assets from `-web` (defaults to `./web`) and exposes JSON APIs
+// + WebSocket streams used by the frontend to connect to the device, run
+// calibration sampling, compute matrices, flash calibration, and run test mode.
+//
+// Flags:
+//
+//	-addr: TCP address to listen on (default 127.0.0.1:8080)
+//	-web:  path to web root containing index.html
+//	-open: open the UI URL in your default browser at startup
+//
+// Env:
+//
+//	CALRUNRILLA_NO_OPEN=1 disables browser auto-open even when -open is set.
 package main
 
 import (
@@ -54,6 +69,10 @@ func main() {
 	}
 }
 
+// makeUIURL turns a listen address (host:port) into a browser-friendly URL.
+//
+// If the server is bound to 0.0.0.0 / ::, the returned URL uses 127.0.0.1
+// because wildcard addresses are not reachable targets in browsers.
 func makeUIURL(addr string) string {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
@@ -67,6 +86,10 @@ func makeUIURL(addr string) string {
 	return fmt.Sprintf("http://%s:%s/", host, port)
 }
 
+// openBrowser tries to open the given URL in the OS default browser.
+//
+// It is intentionally non-blocking (uses exec.Command(...).Start()) so the
+// server startup path is not delayed by browser launch behavior.
 func openBrowser(url string) error {
 	// Non-blocking: Start() returns immediately.
 	switch runtime.GOOS {
