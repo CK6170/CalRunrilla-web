@@ -24,6 +24,10 @@ type PortCache struct {
 	m    map[string]string
 }
 
+// NewPortCache creates a PortCache backed by the JSON file at path.
+//
+// It eagerly attempts to load the file, but failures are ignored (best-effort).
+// An empty path disables persistence (in-memory only).
 func NewPortCache(path string) *PortCache {
 	pc := &PortCache{
 		path: path,
@@ -33,12 +37,16 @@ func NewPortCache(path string) *PortCache {
 	return pc
 }
 
+// Get returns the cached port for key, or "" if none is known.
 func (pc *PortCache) Get(key string) string {
 	pc.mu.Lock()
 	defer pc.mu.Unlock()
 	return strings.TrimSpace(pc.m[key])
 }
 
+// Set records port as the last known working port for key and persists it.
+//
+// Empty key/port are ignored. Persistence failures are ignored (best-effort).
 func (pc *PortCache) Set(key string, port string) {
 	key = strings.TrimSpace(key)
 	port = strings.TrimSpace(port)
@@ -58,6 +66,7 @@ func (pc *PortCache) Set(key string, port string) {
 	_ = pc.saveLocked()
 }
 
+// load reads the cache file from disk into memory (best-effort).
 func (pc *PortCache) load() error {
 	pc.mu.Lock()
 	defer pc.mu.Unlock()
@@ -73,6 +82,9 @@ func (pc *PortCache) load() error {
 	return nil
 }
 
+// saveLocked persists the in-memory map to disk. Caller must hold pc.mu.
+//
+// Writes are deterministic (sorted keys) to reduce churn in the file.
 func (pc *PortCache) saveLocked() error {
 	if pc.path == "" {
 		return nil

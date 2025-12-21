@@ -2,6 +2,14 @@ import { $, escapeHTML, log, setDisabled, setStatus } from "./lib/dom.js";
 import { state } from "./lib/state.js";
 import { apiJSON, uploadFile } from "./lib/api.js";
 
+/**
+ * Log convenient debug links for inspecting the server-side in-memory ConfigStore.
+ *
+ * These endpoints are intended for local troubleshooting (e.g. confirming the server
+ * updated SERIAL.PORT in memory after connect).
+ *
+ * @param {string} configId In-memory config record ID returned by `/api/upload/config`.
+ */
 function logInMemoryLinks(configId) {
   if (!configId) return;
   // `log()` uses textContent (not HTML), so we print copy/paste-friendly URLs.
@@ -10,6 +18,14 @@ function logInMemoryLinks(configId) {
   log($("entryLog"), `Download uploaded JSON: /api/download?id=${encodeURIComponent(configId)}`);
 }
 
+/**
+ * Trigger a browser download for an in-memory JSON record.
+ *
+ * Note: this is kept as a utility for cases where you want a local copy of the
+ * updated config (e.g. after the server updates SERIAL.PORT).
+ *
+ * @param {string} configId In-memory config record ID.
+ */
 function triggerDownloadUpdatedConfig(configId) {
   if (!configId) return;
   const a = document.createElement("a");

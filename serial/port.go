@@ -80,7 +80,11 @@ func AutoDetectPortTrace(parameters *models.PARAMETERS) (string, []string) {
 	return "", trace
 }
 
-// TestPort tries to open port and issue a version command to first bar ID.
+// TestPort tries to open name and validate that a compatible device is present.
+//
+// It sends the Version ("V") command to the first bar ID and considers the port
+// valid if the response looks like a Version reply. A short settle delay and
+// one retry are used to reduce flakiness right after opening the port.
 func TestPort(name string, barID int, baud int) bool {
 	config := &serial.Config{Name: name, Baud: baud, Parity: serial.ParityNone, Size: 8, StopBits: serial.Stop1, ReadTimeout: time.Millisecond * 300}
 	sp, err := serial.OpenPort(config)

@@ -64,7 +64,8 @@ type Server struct {
 
 	store *ConfigStore
 	dev   *DeviceSession
-	pc    *PortCache
+	// pc is a best-effort persistent cache of last-known-good serial ports, keyed by config identity.
+	pc *PortCache
 
 	// WebSocket hubs
 	wsTest  *WSHub
@@ -72,6 +73,10 @@ type Server struct {
 	wsFlash *WSHub
 }
 
+// New constructs the HTTP server and wires up API routes and static frontend hosting.
+//
+// It also initializes best-effort persistence for:
+// - Port cache (CALRUNRILLA_PORT_CACHE or default under the user profile).
 func New(webDir string) *Server {
 	// Default server-side directory (safe sandbox) for caches and optional saves.
 	home, _ := os.UserHomeDir()
@@ -143,6 +148,7 @@ func New(webDir string) *Server {
 	return s
 }
 
+// Handler returns the server's HTTP handler (router).
 func (s *Server) Handler() http.Handler { return s.mux }
 
 func (s *Server) writeJSON(w http.ResponseWriter, status int, v interface{}) {
@@ -261,6 +267,15 @@ func updateRawSerialPort(raw []byte, newPort string) ([]byte, error) {
 	return json.MarshalIndent(m, "", "  ")
 }
 
+// handleConnect implements POST /api/connect.
+//
+// Connection strategy:
+// - Attempt to connect using SERIAL.PORT from the uploaded config (or cached port if config has none)
+// - If it fails, try full auto-detection using serial.AutoDetectPortTrace()
+// - On success, update SERIAL.PORT in the in-memory config JSON and store it (PortUpdated=true)
+// - Persist the last-known-good port to PortCache so future uploads can skip auto-detect
+//
+// It also returns AutoDetectLog so the UI can show what the server tried.
 func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
@@ -1089,6 +1104,13 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(rec.Raw)
 }
 
+// handleSaveConfig implements POST /api/save-config.
+//
+// It writes a ConfigStore record's raw JSON to disk in CALRUNRILLA_SAVE_DIR.
+// If CALRUNRILLA_SAVE_DIR is unset, it falls back to a safe default under the
+// user's profile directory (e.g. ~/.calrunrilla/configs).
+//
+// The filename must be a base name only (no directories) to prevent path traversal.
 func (s *Server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)

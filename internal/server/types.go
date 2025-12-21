@@ -30,6 +30,12 @@ type ConnectRequest struct {
 //
 // Warning is best-effort (e.g. version mismatch) and does not necessarily mean
 // the connection failed.
+//
+// AutoDetectLog contains trace lines from the server-side serial port selection
+// process (configured port probe, cached port probe, enumeration, fallback scan).
+//
+// PortUpdated is true when the server modified the uploaded config JSON in memory
+// (typically updating SERIAL.PORT after a successful connect).
 type ConnectResponse struct {
 	Connected     bool     `json:"connected"`
 	ConfigID      string   `json:"configId,omitempty"`
@@ -95,6 +101,7 @@ type SaveConfigRequest struct {
 	Overwrite bool   `json:"overwrite,omitempty"` // default false
 }
 
+// SaveConfigResponse is returned by /api/save-config.
 type SaveConfigResponse struct {
 	OK   bool   `json:"ok"`
 	Path string `json:"path,omitempty"`

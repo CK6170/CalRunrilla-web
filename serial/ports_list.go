@@ -55,6 +55,9 @@ func ListPorts() []string {
 	}
 }
 
+// listByGlob expands filesystem glob patterns into a stable, de-duplicated list.
+//
+// This is used as a fallback for platforms where the enumerator returns no ports.
 func listByGlob(patterns ...string) []string {
 	seen := map[string]struct{}{}
 	out := make([]string, 0, 16)
