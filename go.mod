@@ -9,4 +9,8 @@ require (
 	gonum.org/v1/gonum v0.16.0
 )
 
-require golang.org/x/sys v0.38.0 // indirect
+require (
+	github.com/creack/goselect v0.1.2 // indirect
+	go.bug.st/serial v1.6.4 // indirect
+	golang.org/x/sys v0.38.0 // indirect
+)

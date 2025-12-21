@@ -2,6 +2,24 @@ import { $, escapeHTML, log, setDisabled, setStatus } from "./lib/dom.js";
 import { state } from "./lib/state.js";
 import { apiJSON, uploadFile } from "./lib/api.js";
 
+function logInMemoryLinks(configId) {
+  if (!configId) return;
+  // `log()` uses textContent (not HTML), so we print copy/paste-friendly URLs.
+  log($("entryLog"), `Store list: /api/debug/store`);
+  log($("entryLog"), `View uploaded JSON (in-memory): /api/debug/store/raw?id=${encodeURIComponent(configId)}`);
+  log($("entryLog"), `Download uploaded JSON: /api/download?id=${encodeURIComponent(configId)}`);
+}
+
+function triggerDownloadUpdatedConfig(configId) {
+  if (!configId) return;
+  const a = document.createElement("a");
+  a.href = `/api/download?id=${encodeURIComponent(configId)}`;
+  a.download = "";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 /**
  * Render a compact view of key config parameters on the entry screen.
  *
@@ -93,8 +111,25 @@ export async function uploadAndConnect() {
     const up = await uploadFile("/api/upload/config", f);
     state.configId = up.configId;
     log($("entryLog"), `Uploaded config -> id=${state.configId}`);
+    logInMemoryLinks(state.configId);
     const conn = await apiJSON("/api/connect", { configId: state.configId });
     state.connected = true;
+    // Surface backend auto-detect trace in the Entry log (instead of server console).
+    if (Array.isArray(conn.autoDetectLog) && conn.autoDetectLog.length) {
+      conn.autoDetectLog.forEach((line) => log($("entryLog"), String(line)));
+    }
+    if (conn.portUpdated) {
+      const filename = state.lastConfigName || "config.json";
+      // Server-side save for next time (avoids editing local files in the browser sandbox).
+      log($("entryLog"), `Updated config saved in memory with PORT=${conn.port}. Saving server-side as ${filename}...`);
+      try {
+        const res = await apiJSON("/api/save-config", { configId: state.configId, filename, overwrite: true });
+        log($("entryLog"), `Saved on server: ${res.path || "(unknown path)"}`);
+      } catch (e) {
+        log($("entryLog"), `Server-side save failed: ${e.message}`);
+        log($("entryLog"), `Manual download (updated JSON in memory): /api/download?id=${state.configId}`);
+      }
+    }
     setStatus(`Connected on ${conn.port} (bars=${conn.bars}, lcs=${conn.lcs})`);
     log($("entryLog"), `Connected on ${conn.port}`);
     if (conn.warning) {
@@ -129,5 +164,7 @@ export async function disconnect() {
   setStatus("Disconnected");
   log($("entryLog"), "Disconnected");
 }
+
+// No extra controls; keep Entry simple.
 
 

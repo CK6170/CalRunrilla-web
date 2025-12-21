@@ -31,11 +31,14 @@ type ConnectRequest struct {
 // Warning is best-effort (e.g. version mismatch) and does not necessarily mean
 // the connection failed.
 type ConnectResponse struct {
-	Connected bool   `json:"connected"`
-	Port      string `json:"port"`
-	Bars      int    `json:"bars"`
-	LCs       int    `json:"lcs"`
-	Warning   string `json:"warning,omitempty"`
+	Connected     bool     `json:"connected"`
+	ConfigID      string   `json:"configId,omitempty"`
+	Port          string   `json:"port"`
+	Bars          int      `json:"bars"`
+	LCs           int      `json:"lcs"`
+	Warning       string   `json:"warning,omitempty"`
+	AutoDetectLog []string `json:"autoDetectLog,omitempty"`
+	PortUpdated   bool     `json:"portUpdated,omitempty"`
 }
 
 // CalPlanResponse returns a linear list of steps the UI should walk through.
@@ -82,4 +85,17 @@ type TestConfigRequest struct {
 	Debug       bool `json:"debug"`
 	TickMS      int  `json:"tickMs,omitempty"`
 	ADTimeoutMS int  `json:"adTimeoutMs,omitempty"`
+}
+
+// SaveConfigRequest asks the server to persist an in-memory config record to disk.
+// The server writes only within the configured save directory (CALRUNRILLA_SAVE_DIR).
+type SaveConfigRequest struct {
+	ConfigID  string `json:"configId"`
+	Filename  string `json:"filename,omitempty"`  // optional; defaults to the uploaded filename or "config.json"
+	Overwrite bool   `json:"overwrite,omitempty"` // default false
+}
+
+type SaveConfigResponse struct {
+	OK   bool   `json:"ok"`
+	Path string `json:"path,omitempty"`
 }

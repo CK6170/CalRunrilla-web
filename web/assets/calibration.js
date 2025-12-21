@@ -423,6 +423,7 @@ export async function startCalStep() {
       const res = await apiJSON("/api/calibration/compute");
       state.calibratedId = res.calibratedId;
       log($("calLog"), `Computed zeros/factors. calibratedId=${state.calibratedId}`);
+      // Save calibrated json to the browser's default download folder.
       triggerDownloadCalibrated(state.calibratedId);
       state.calFinalStage = "computed_ready";
       try {

@@ -7,6 +7,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -63,6 +64,7 @@ type Server struct {
 
 	store *ConfigStore
 	dev   *DeviceSession
+	pc    *PortCache
 
 	// WebSocket hubs
 	wsTest  *WSHub
@@ -71,10 +73,18 @@ type Server struct {
 }
 
 func New(webDir string) *Server {
+	// Default server-side directory (safe sandbox) for caches and optional saves.
+	home, _ := os.UserHomeDir()
+	cachePath := strings.TrimSpace(os.Getenv("CALRUNRILLA_PORT_CACHE"))
+	if cachePath == "" && home != "" {
+		cachePath = filepath.Join(home, ".calrunrilla", "port_cache.json")
+	}
+
 	s := &Server{
 		mux:     http.NewServeMux(),
 		store:   NewConfigStore(),
 		dev:     &DeviceSession{testZeroCh: make(chan []int64, 1)},
+		pc:      NewPortCache(cachePath),
 		wsTest:  NewWSHub(),
 		wsCal:   NewWSHub(),
 		wsFlash: NewWSHub(),
@@ -85,6 +95,7 @@ func New(webDir string) *Server {
 	// Debug helpers for inspecting the in-memory ConfigStore (local-only server).
 	s.mux.HandleFunc("/api/debug/store", s.handleDebugStoreList)
 	s.mux.HandleFunc("/api/debug/store/raw", s.handleDebugStoreRaw)
+	s.mux.HandleFunc("/api/save-config", s.handleSaveConfig)
 	s.mux.HandleFunc("/api/upload/config", s.handleUploadConfig)
 	s.mux.HandleFunc("/api/upload/calibrated", s.handleUploadCalibrated)
 	s.mux.HandleFunc("/api/connect", s.handleConnect)
@@ -280,6 +291,17 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	if origPort == "" {
 		origPort = ""
 	}
+	autoDetectLog := []string(nil)
+	portUpdated := false
+	key := configKey(rec.P)
+
+	// If the uploaded config has an empty/stale port, try the server-side cache first.
+	if strings.TrimSpace(rec.P.SERIAL.PORT) == "" && key != "" && s.pc != nil {
+		if cached := s.pc.Get(key); cached != "" {
+			rec.P.SERIAL.PORT = cached
+			autoDetectLog = append(autoDetectLog, fmt.Sprintf("[serial] port cache: using cached port %q", cached))
+		}
+	}
 
 	tryConnect := func() (*serialpkg.Leo485, error) {
 		bars, err := openBars(rec.P.SERIAL, rec.P.BARS)
@@ -295,10 +317,28 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 	bars, err := tryConnect()
 	if err != nil {
+		// Before full auto-detect, try a cached port (if different) as a fast recovery path.
+		if key != "" && s.pc != nil {
+			if cached := s.pc.Get(key); cached != "" && !strings.EqualFold(strings.TrimSpace(rec.P.SERIAL.PORT), cached) {
+				autoDetectLog = append(autoDetectLog, fmt.Sprintf("[serial] port cache: trying cached port %q", cached))
+				rec.P.SERIAL.PORT = cached
+				if bars2, err2 := tryConnect(); err2 == nil {
+					bars = bars2
+					err = nil
+				}
+			}
+		}
+	}
+	if err != nil {
 		// If port missing or wrong, scan for the correct port using Version probing.
-		found := serialpkg.AutoDetectPort(rec.P)
+		found, trace := serialpkg.AutoDetectPortTrace(rec.P)
+		autoDetectLog = append(autoDetectLog, trace...)
 		if strings.TrimSpace(found) == "" {
-			s.writeJSON(w, 400, APIError{Error: err.Error()})
+			ports := serialpkg.ListPorts()
+			if len(ports) > 12 {
+				ports = ports[:12]
+			}
+			s.writeJSON(w, 400, APIError{Error: fmt.Sprintf("%s (configuredPort=%q; enumeratedPorts=%v)", err.Error(), rec.P.SERIAL.PORT, ports)})
 			return
 		}
 		// Update and retry
@@ -308,23 +348,32 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 			s.writeJSON(w, 400, APIError{Error: err.Error()})
 			return
 		}
-		// Persist updated port back into stored config JSON so future operations use it.
-		_ = s.store.Update(rec.ID, func(r *ConfigRecord) error {
-			raw2, uerr := updateRawSerialPort(r.Raw, found)
-			if uerr == nil {
-				r.Raw = raw2
-			}
-			// Explicitly update r.P.SERIAL.PORT to ensure consistency
-			if r.P != nil && r.P.SERIAL != nil {
-				r.P.SERIAL.PORT = found
-			}
-			return nil
-		})
 	}
 
 	s.dev.configID = rec.ID
 	s.dev.params = rec.P
 	s.dev.bars = bars
+
+	// If the effective port differs from what was in the uploaded JSON, persist it into
+	// the stored raw JSON so the user can download and reuse it for the next session.
+	finalPort := strings.TrimSpace(rec.P.SERIAL.PORT)
+	if finalPort != "" && finalPort != origPort {
+		portUpdated = true
+		_ = s.store.Update(rec.ID, func(r *ConfigRecord) error {
+			raw2, uerr := updateRawSerialPort(r.Raw, finalPort)
+			if uerr == nil {
+				r.Raw = raw2
+			}
+			if r.P != nil && r.P.SERIAL != nil {
+				r.P.SERIAL.PORT = finalPort
+			}
+			return nil
+		})
+	}
+	// Persist last-known-good port to the server-side cache so the next upload can skip autodetect.
+	if key != "" && finalPort != "" && s.pc != nil {
+		s.pc.Set(key, finalPort)
+	}
 
 	// Non-blocking version mismatch warning (connect continues as normal).
 	warn := ""
@@ -343,11 +392,14 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.writeJSON(w, 200, ConnectResponse{
-		Connected: true,
-		Port:      rec.P.SERIAL.PORT,
-		Bars:      len(rec.P.BARS),
-		LCs:       bars.NLCs,
-		Warning:   warn,
+		Connected:     true,
+		ConfigID:      rec.ID,
+		Port:          rec.P.SERIAL.PORT,
+		Bars:          len(rec.P.BARS),
+		LCs:           bars.NLCs,
+		Warning:       warn,
+		AutoDetectLog: autoDetectLog,
+		PortUpdated:   portUpdated,
 	})
 }
 
@@ -1036,6 +1088,85 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(200)
 	_, _ = w.Write(rec.Raw)
 }
+
+func (s *Server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	var req SaveConfigRequest
+	if err := s.readJSON(r, &req); err != nil {
+		s.writeJSON(w, 400, APIError{Error: err.Error()})
+		return
+	}
+	if strings.TrimSpace(req.ConfigID) == "" {
+		s.writeJSON(w, 400, APIError{Error: "missing configId"})
+		return
+	}
+	// Allow explicit override via env var, otherwise use a safe default under the user profile.
+	baseDir := strings.TrimSpace(os.Getenv("CALRUNRILLA_SAVE_DIR"))
+	if baseDir == "" {
+		if home, _ := os.UserHomeDir(); home != "" {
+			baseDir = filepath.Join(home, ".calrunrilla", "configs")
+		}
+	}
+	if baseDir == "" {
+		s.writeJSON(w, 400, APIError{Error: "no writable save directory available"})
+		return
+	}
+	rec, ok := s.store.Get(req.ConfigID)
+	if !ok || rec == nil {
+		s.writeJSON(w, 404, APIError{Error: "not found"})
+		return
+	}
+
+	// Choose a filename. We only allow a single base name (no directories) to avoid path traversal.
+	name := strings.TrimSpace(req.Filename)
+	if name == "" {
+		name = strings.TrimSpace(rec.Filename)
+	}
+	if name == "" {
+		name = "config.json"
+	}
+	baseName := filepath.Base(name)
+	if baseName != name {
+		s.writeJSON(w, 400, APIError{Error: "filename must not include directories"})
+		return
+	}
+	if baseName == "." || baseName == string(filepath.Separator) {
+		s.writeJSON(w, 400, APIError{Error: "invalid filename"})
+		return
+	}
+	if !strings.HasSuffix(strings.ToLower(baseName), ".json") {
+		// Keep it simple: always write .json files.
+		baseName = baseName + ".json"
+	}
+
+	absBase, err := filepath.Abs(baseDir)
+	if err != nil {
+		s.writeJSON(w, 400, APIError{Error: "invalid CALRUNRILLA_SAVE_DIR"})
+		return
+	}
+	target := filepath.Join(absBase, baseName)
+
+	if err := os.MkdirAll(absBase, 0o755); err != nil {
+		s.writeJSON(w, 500, APIError{Error: fmt.Sprintf("failed to create save dir: %v", err)})
+		return
+	}
+	if !req.Overwrite {
+		if _, err := os.Stat(target); err == nil {
+			s.writeJSON(w, 409, APIError{Error: "file already exists (set overwrite=true to replace)"})
+			return
+		}
+	}
+	if err := os.WriteFile(target, rec.Raw, 0o644); err != nil {
+		s.writeJSON(w, 500, APIError{Error: fmt.Sprintf("failed to write file: %v", err)})
+		return
+	}
+	s.writeJSON(w, 200, SaveConfigResponse{OK: true, Path: target})
+}
+
+// (save-dir endpoints removed; keep server-side save via CALRUNRILLA_SAVE_DIR only)
 
 // handleDebugStoreList returns metadata for everything currently stored in memory.
 //

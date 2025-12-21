@@ -18,8 +18,64 @@ import { renderFlashPreviewFromFile, stopFlash, uploadAndFlash } from "./flash.j
  * - `flash.js`: flash an already-calibrated JSON
  */
 
+/**
+ * If the app is opened in "test mode", automatically enter the Test card and start streaming
+ * after a successful connect.
+ *
+ * Supported selectors:
+ * - `?mode=test`
+ * - `?autotest=1` or `?test=1`
+ * - `#test`
+ *
+ * This keeps the default UX unchanged for normal users.
+ */
+function isAutoTestMode() {
+  try {
+    if ((location.hash || "").toLowerCase() === "#test") return true;
+    const q = new URLSearchParams(location.search || "");
+    const mode = (q.get("mode") || "").toLowerCase();
+    if (mode === "test") return true;
+    const autotest = (q.get("autotest") || "").toLowerCase();
+    if (autotest === "1" || autotest === "true" || autotest === "yes") return true;
+    const test = (q.get("test") || "").toLowerCase();
+    if (test === "1" || test === "true" || test === "yes") return true;
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
+async function enterTestCardAndStart() {
+  if (!state.connected) return log($("entryLog"), "Connect first");
+  if (state.calPollingInterval) {
+    clearInterval(state.calPollingInterval);
+    state.calPollingInterval = null;
+  }
+  show("testCard");
+  setTestTotalsExpanded(false);
+  $("testLog").textContent = "";
+  $("testTable").innerHTML = "";
+  $("testTotals").innerHTML = "";
+  $("testZeros").textContent = "";
+  state.testZeroLineBase = "";
+  state.testLastSnapMs = 0;
+  state.testRatePerBar = 0;
+  state.testFactors = null;
+  state.testZeros = null;
+  await startTest();
+}
+
 // Wire UI
-$("btnUploadConnect").onclick = () => uploadAndConnect().catch((e) => log($("entryLog"), `ERROR: ${e.message}`));
+$("btnUploadConnect").onclick = async () => {
+  try {
+    await uploadAndConnect();
+    if (isAutoTestMode() && state.connected) {
+      await enterTestCardAndStart().catch((e) => log($("testLog"), `ERROR: ${e.message}`));
+    }
+  } catch (e) {
+    log($("entryLog"), `ERROR: ${e.message}`);
+  }
+};
 $("btnDisconnect").onclick = async () => {
   // Ensure test polling/WS are stopped before disconnecting.
   if (state.testRunning) {
@@ -32,7 +88,13 @@ $("btnDisconnect").onclick = async () => {
 $("configFile").onchange = () => {
   const f = $("configFile").files?.[0];
   if (!f) return;
-  uploadAndConnect().catch((e) => log($("entryLog"), `ERROR: ${e.message}`));
+  uploadAndConnect()
+    .then(async () => {
+      if (isAutoTestMode() && state.connected) {
+        await enterTestCardAndStart().catch((e) => log($("testLog"), `ERROR: ${e.message}`));
+      }
+    })
+    .catch((e) => log($("entryLog"), `ERROR: ${e.message}`));
 };
 
 // Navigation: Entry -> Calibration
@@ -64,23 +126,7 @@ $("goCalibration").onclick = async () => {
 
 // Navigation: Entry -> Test
 $("goTest").onclick = () => {
-  if (!state.connected) return log($("entryLog"), "Connect first");
-  if (state.calPollingInterval) {
-    clearInterval(state.calPollingInterval);
-    state.calPollingInterval = null;
-  }
-  show("testCard");
-  setTestTotalsExpanded(false);
-  $("testLog").textContent = "";
-  $("testTable").innerHTML = "";
-  $("testTotals").innerHTML = "";
-  $("testZeros").textContent = "";
-  state.testZeroLineBase = "";
-  state.testLastSnapMs = 0;
-  state.testRatePerBar = 0;
-  state.testFactors = null;
-  state.testZeros = null;
-  startTest().catch((e) => log($("testLog"), `ERROR: ${e.message}`));
+  enterTestCardAndStart().catch((e) => log($("testLog"), `ERROR: ${e.message}`));
 };
 
 // Navigation: Entry -> Flash
