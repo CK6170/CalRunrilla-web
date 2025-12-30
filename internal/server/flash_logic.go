@@ -11,6 +11,11 @@ import (
 	serialpkg "github.com/CK6170/Calrunrilla-go/serial"
 )
 
+// flashParameters writes calibration zeros and factors to each bar.
+//
+// It enters update mode (Euler handshake), flashes zeros then factors, and
+// triggers a reboot. Progress is reported via onProgress (when non-nil) using
+// stage names consumed by the web UI.
 func flashParameters(ctx context.Context, bars *serialpkg.Leo485, p *models.PARAMETERS, onProgress func(map[string]interface{})) error {
 	if bars == nil {
 		return fmt.Errorf("not connected")
@@ -142,4 +147,3 @@ func flashParameters(ctx context.Context, bars *serialpkg.Leo485, p *models.PARA
 	emit(map[string]interface{}{"stage": "done", "message": "Flashing complete"})
 	return nil
 }
-

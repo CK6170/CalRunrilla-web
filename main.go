@@ -1,3 +1,11 @@
+// Command `calrunrilla` runs the interactive terminal-based calibration workflow.
+//
+// It is the CLI entrypoint that drives the `calibration` package and provides a
+// simple argument/flag layer:
+// - `calrunrilla <config.json>` runs the full interactive calibration loop.
+// - `--test` runs the interactive test/weight-check flow for a config (no calibration).
+// - `--flash` flashes calibration factors from a calibrated config (headless).
+// - `--version` / `-v` prints the app version and exits.
 package main
 
 import (
@@ -23,15 +31,9 @@ const (
 	SHIFTIDX = 6
 )
 
-// Raw single-key input (Windows & other OS) using golang.org/x/term
-// We switch stdin to raw mode and read bytes directly without needing Enter.
-
-// Enums LMR, FB and BAY are provided by the `models` package. We removed
-// the local declarations to avoid redeclaration errors and use aliases below.
-
-// Use canonical models from the `models` package. These type aliases keep the
-// rest of the code using the short names (e.g., PARAMETERS, BAR) while pointing
-// at the exported types in the models package.
+// Type aliases (legacy): this file historically contained the entire project in
+// one package. These aliases keep older names compiling while the codebase is
+// split into packages.
 type PARAMETERS = models.PARAMETERS
 type SENTINEL = models.SENTINEL
 type VERSION = models.VERSION
@@ -54,21 +56,18 @@ var (
 	immediateRetry bool
 )
 
-// Backwards-compatible aliases: many call sites in main.go use unqualified
-// function names (from the pre-refactor single-file layout). Provide thin
-// aliases that point to the exported package implementations so we can keep
-// the rest of the code unchanged while migrating gradually.
-// NOTE: we intentionally avoid creating global aliases here. Instead the
-// following file uses package-qualified names (serialpkg.*, matrix.*) so the
-// concrete source of each function/type is unambiguous during migration.
-
 // App version variables. Set these at build time with -ldflags if desired.
 var (
 	AppVersion = "dev"
 	AppBuild   = "local"
 )
 
+// main is the CLI entry point.
+//
+// It performs minimal argument parsing (without the flag package) to keep
+// backwards-compatible behavior, then delegates to the `calibration` package.
 func main() {
+	// Basic argument validation: require a config path unless this is a version request.
 	if len(os.Args) < 2 {
 		log.Fatal("Usage: calrunrilla <config.json>")
 	}
@@ -106,7 +105,8 @@ func main() {
 		log.Fatal("Usage: calrunrilla <config.json>")
 	}
 
-	// If headless test/flash flags were set, run the corresponding flows and exit
+	// Optional modes: headless flash and interactive test mode.
+	// These are invoked before setting up the interactive calibration loop.
 	if os.Getenv("CALRUNRILLA_RUN_TEST") == "1" {
 		calibration.TestWeightsConfig(configPath)
 		return
@@ -115,15 +115,15 @@ func main() {
 		calibration.FlashOnly(configPath)
 		return
 	}
-	// Route the standard logger output through our package-scope redWriter
+
+	// Route standard logger output through our redWriter (terminal UI).
 	log.SetFlags(0)
 	log.SetOutput(ui.NewRedWriter(os.Stderr))
 
 	// Informational debug line
 	ui.Debugf(true, "calrunrilla starting with config: %s\n", configPath)
 
-	// ...existing code...
-
+	// Main interactive loop: run calibration, then offer retry/test/exit without restart.
 	for {
 		ui.ClearScreen()
 		// Print application banner after clearing the screen so it remains visible
@@ -184,6 +184,8 @@ func main() {
 
 // indexTitle unused; kept for reference
 
+// calcBarsPerRow estimates how many bars can be rendered side-by-side given the
+// terminal width.
 func calcBarsPerRow(width int) int {
 	if width <= 0 {
 		return 1
@@ -196,6 +198,9 @@ func calcBarsPerRow(width int) int {
 	return bars
 }
 
+// getTerminalWidth returns the current terminal width in characters.
+//
+// It uses `stty size` when available (Unix-like environments) and falls back to 80.
 func getTerminalWidth() int {
 	cmd := exec.Command("stty", "size")
 	cmd.Stdin = os.Stdin

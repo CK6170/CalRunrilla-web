@@ -1,3 +1,12 @@
+// Package calibration implements the interactive (terminal-based) calibration
+// and test workflows.
+//
+// This package is used by the CLI flows (as opposed to the web UI in
+// internal/server) and is responsible for:
+// - Loading config JSON
+// - Ensuring a working serial connection (including auto-detect)
+// - Guiding the operator through zero + weight sampling
+// - Computing zeros/factors and optionally flashing them to the device
 package calibration
 
 import (
@@ -16,7 +25,8 @@ import (
 	"github.com/tarm/serial"
 )
 
-// at the exported types in the models package.
+// Re-export core config types from `models` so older call sites can keep using
+// PARAMETERS/SERIAL/BAR/etc from this package.
 type PARAMETERS = models.PARAMETERS
 type SENTINEL = models.SENTINEL
 type VERSION = models.VERSION
@@ -42,6 +52,16 @@ var (
 // GetLastParameters returns the most recently loaded parameters used in calibration.
 func GetLastParameters() *PARAMETERS { return lastParameters }
 
+// CalRunrilla runs the full interactive calibration flow for a given config file.
+//
+// It loads the JSON config, ensures SERIAL.PORT is usable (auto-detecting and
+// persisting it back to the JSON when necessary), then walks the operator through:
+// - zero sampling
+// - weight sampling
+// - factor computation (SVD pseudo-inverse)
+//
+// Finally it prompts to save `_calibrated.json` and optionally flash the device,
+// or enter test mode.
 func CalRunrilla(args0 string, barsPerRow int, appVer string, appBuild string) {
 	jsonData, err := os.ReadFile(args0)
 	if err != nil {
@@ -337,6 +357,9 @@ func calcZerosFactors(adv, ad0 *matrix.Matrix, parameters *PARAMETERS) string {
 	return debug
 }
 
+// ProbeVersion returns true if the first bar responds to the Version command.
+//
+// This is used as a quick connectivity/protocol probe after opening the serial port.
 func ProbeVersion(bars *serialpkg.Leo485, parameters *PARAMETERS) bool {
 	_, _, _, err := bars.GetVersion(0)
 	return err == nil

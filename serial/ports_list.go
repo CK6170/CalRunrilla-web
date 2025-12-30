@@ -14,6 +14,8 @@ import (
 // This is used to avoid brute-force probing (e.g. COM1..COM64) when the OS can
 // provide an accurate list.
 //
+// The returned slice is sorted and de-duplicated.
+//
 // Supported:
 // - Windows: COM ports (e.g. "COM3")
 // - Linux: /dev/ttyUSB*, /dev/ttyACM*, etc
@@ -44,7 +46,8 @@ func ListPorts() []string {
 	// Fallbacks when the enumerator returns nothing.
 	switch runtime.GOOS {
 	case "windows":
-		// Let the existing COM scan fallback handle it (AutoDetectPort).
+		// Some Windows environments provide unreliable/empty enumerations; let the
+		// existing COM scan fallback handle it (AutoDetectPort).
 		return nil
 	case "darwin":
 		// Prefer "cu" devices on macOS for outgoing connections; keep "tty" as well.

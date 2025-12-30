@@ -5,11 +5,18 @@ import (
 	"math"
 )
 
+// ToIEEE754 returns the IEEE-754 binary representation of f.
+//
+// This is a thin wrapper around math.Float32bits and is used when formatting
+// calibration factors in a firmware-friendly hex form.
 func ToIEEE754(f float32) uint32 {
 	return math.Float32bits(f)
 }
 
-// printFactorsIEEE prints the factors as IEEE754 hex with decimal values, matching requested formatting
+// PrintFactorsIEEE prints the factors as decimal values alongside their IEEE-754
+// float32 hex representation.
+//
+// Output uses ANSI color and aligns sign/decimal columns for readability.
 func PrintFactorsIEEE(factors *Vector) {
 	// Orange color for factors
 	fmt.Print("\033[38;5;208m")

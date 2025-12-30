@@ -1,3 +1,19 @@
+// Command `mathmode` is a small debugging/analysis helper used during calibration
+// development.
+//
+// It reads a JSON file (default `math.json`) that contains:
+// - WEIGHT: the applied weight value
+// - ITER0: the "zero" ADC snapshot per bar/LC
+// - ITER1..N: additional ADC snapshots for each weight placement
+//
+// It then builds the matrices used by calibration, computes factors using an SVD
+// pseudoinverse, and prints:
+// - the zero matrix (ad0)
+// - the weight matrix (adv)
+// - computed zeros and factors (including IEEE-754 hex)
+// - a quick "check" (A * factors) and an error norm
+//
+// Note: This tool is intentionally console-only and is not part of the web UI.
 package main
 
 import (
@@ -12,12 +28,19 @@ import (
 	matrix "github.com/CK6170/Calrunrilla-go/matrix"
 )
 
-// IterEntry matches the per-bar entries in the provided JSON
+// IterEntry is one per-bar entry in the mathmode JSON file.
+//
+// LC contains the ADC readings for each load cell on that bar.
 type IterEntry struct {
 	ID int     `json:"ID"`
 	LC []int64 `json:"LC"`
 }
 
+// main loads the math JSON, builds matrices, computes factors, and prints results.
+//
+// Usage:
+//
+//	mathmode [path/to/math.json]
 func main() {
 	path := "math.json"
 	if len(os.Args) > 1 {
@@ -180,7 +203,7 @@ func main() {
 	// No file output — console-only per user's request
 }
 
-// transposeMatrix returns a new matrix which is the transpose of pm
+// transposeMatrix returns the transpose of pm.
 func transposeMatrix(pm *matrix.Matrix) *matrix.Matrix {
 	t := matrix.NewMatrix(pm.Cols, pm.Rows)
 	for i := 0; i < pm.Rows; i++ {
@@ -194,7 +217,7 @@ func transposeMatrix(pm *matrix.Matrix) *matrix.Matrix {
 	return t
 }
 
-// Produce LaTeX equation for a matrix (pmatrix)
+// matrixToLaTeXEquation produces a single-line LaTeX pmatrix for pm.
 func matrixToLaTeXEquation(pm *matrix.Matrix) string {
 	sb := &strings.Builder{}
 	sb.WriteString("\\begin{pmatrix}")
@@ -213,7 +236,7 @@ func matrixToLaTeXEquation(pm *matrix.Matrix) string {
 	return sb.String()
 }
 
-// Produce LaTeX equation for a vector
+// vectorToLaTeXEquation produces a single-column LaTeX pmatrix for v.
 func vectorToLaTeXEquation(v *matrix.Vector) string {
 	sb := &strings.Builder{}
 	sb.WriteString("\\begin{pmatrix}")
@@ -227,7 +250,7 @@ func vectorToLaTeXEquation(v *matrix.Vector) string {
 	return sb.String()
 }
 
-// Produce LaTeX for the transpose of a vector (row vector)
+// vectorToLaTeXTranspose produces a row-vector LaTeX pmatrix for v.
 func vectorToLaTeXTranspose(v *matrix.Vector) string {
 	sb := &strings.Builder{}
 	sb.WriteString("\\begin{pmatrix}")
@@ -241,6 +264,7 @@ func vectorToLaTeXTranspose(v *matrix.Vector) string {
 	return sb.String()
 }
 
+// matrixToLaTeX renders an integer-ish matrix as LaTeX pmatrix with newlines.
 func matrixToLaTeX(pm *matrix.Matrix) string {
 	sb := &strings.Builder{}
 	sb.WriteString("\\begin{pmatrix}\n")
@@ -262,6 +286,7 @@ func matrixToLaTeX(pm *matrix.Matrix) string {
 	return sb.String()
 }
 
+// vectorToLaTeX renders a vector as a LaTeX column pmatrix.
 func vectorToLaTeX(v *matrix.Vector) string {
 	sb := &strings.Builder{}
 	sb.WriteString("\\begin{pmatrix}")
@@ -275,7 +300,7 @@ func vectorToLaTeX(v *matrix.Vector) string {
 	return sb.String()
 }
 
-// Render a matrix of floats as LaTeX pmatrix
+// matrixFloatToLaTeX renders a float matrix as LaTeX pmatrix.
 func matrixFloatToLaTeX(pm *matrix.Matrix) string {
 	sb := &strings.Builder{}
 	sb.WriteString("\\begin{pmatrix}")

@@ -13,7 +13,8 @@ import (
 	"github.com/CK6170/Calrunrilla-go/ui"
 )
 
-// testWeightsConfig loads parameters from a config and runs the interactive testWeights flow.
+// TestWeightsConfig loads parameters from a config and runs the interactive
+// TestWeights flow.
 func TestWeightsConfig(configPath string) {
 	jsonData, err := os.ReadFile(configPath)
 	if err != nil {
@@ -75,7 +76,8 @@ func TestWeightsConfig(configPath string) {
 	TestWeights(bars, &parameters)
 }
 
-// testWeights shows factors, collects averaged zeros automatically, and displays a live weight table.
+// TestWeights shows factors, collects averaged zeros automatically, and displays
+// a live weight table.
 func TestWeights(bars *serialpkg.Leo485, parameters *PARAMETERS) {
 	nbars := len(parameters.BARS)
 	if nbars == 0 {
@@ -216,7 +218,9 @@ func TestWeights(bars *serialpkg.Leo485, parameters *PARAMETERS) {
 	}
 }
 
-// collectAveragedZeros samples ADCs and returns averaged values
+// collectAveragedZeros samples ADCs and returns averaged values.
+//
+// Returned slice is flattened bar-major: [bar0_lc0, bar0_lc1, ..., barN_lcM].
 func collectAveragedZeros(bars *serialpkg.Leo485, parameters *PARAMETERS, samples int) []int64 {
 	nb := len(bars.Bars)
 	nlcs := bars.NLCs

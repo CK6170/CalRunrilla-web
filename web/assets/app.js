@@ -45,6 +45,15 @@ function isAutoTestMode() {
   return false;
 }
 
+/**
+ * Enter the Test card and start streaming snapshots.
+ *
+ * This is used by both:
+ * - the explicit "Go Test" button
+ * - the auto-test mode feature (URL parameter/hash)
+ *
+ * @returns {Promise<void>}
+ */
 async function enterTestCardAndStart() {
   if (!state.connected) return log($("entryLog"), "Connect first");
   if (state.calPollingInterval) {

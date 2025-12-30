@@ -14,8 +14,13 @@ import (
 	goserial "github.com/tarm/serial"
 )
 
+// Euler is the magic string used by the device to enter update/flash mode.
 const Euler = "27182818284590452353602874713527\r"
 
+// Leo485 wraps a serial port and exposes device-oriented operations.
+//
+// It assumes a "bars" configuration where each bar has the same number of
+// active load cells (enforced by NewLeo485).
 type Leo485 struct {
 	Serial       *goserial.Port
 	Bars         []*models.BAR
@@ -23,6 +28,11 @@ type Leo485 struct {
 	SerialConfig *models.SERIAL
 }
 
+// NewLeo485 opens the serial port described by ser and constructs a Leo485
+// instance bound to the provided bar layout.
+//
+// Note: This function calls log.Fatal on errors and on invalid configurations
+// (e.g. differing number of active load cells per bar).
 func NewLeo485(ser *models.SERIAL, bars []*models.BAR) *Leo485 {
 	config := &goserial.Config{
 		Name:        ser.PORT,
@@ -50,10 +60,14 @@ func NewLeo485(ser *models.SERIAL, bars []*models.BAR) *Leo485 {
 	return l
 }
 
+// Open is kept for interface compatibility; the port is already opened by
+// NewLeo485.
 func (l *Leo485) Open() error { return nil }
 
+// Close closes the underlying serial port.
 func (l *Leo485) Close() error { return l.Serial.Close() }
 
+// GetADs reads the ADC values for the bar at index using a default timeout.
 func (l *Leo485) GetADs(index int) ([]uint64, error) {
 	// Keep calibration/other flows lenient to avoid turning transient parse issues into hard failures.
 	return l.GetADsWithTimeout(index, 200)
@@ -103,6 +117,9 @@ func (l *Leo485) GetADsStrictWithTimeout(index int, timeoutMS int) ([]uint64, er
 	return bruts, nil
 }
 
+// GetVersion queries the first bar for its firmware version.
+//
+// The expected payload contains a "Version ID.MAJOR.MINOR" string.
 func (l *Leo485) GetVersion(index int) (int, int, int, error) {
 	cmd := GetCommand(l.Bars[index].ID, []byte("V"))
 	response, err := getData(l.Serial, cmd, 200)
@@ -127,6 +144,10 @@ func (l *Leo485) GetVersion(index int) (int, int, int, error) {
 	return id, major, minor, nil
 }
 
+// WriteZeros sends a calibration "zeros" payload to the bar at index.
+//
+// zeros should contain a value for each active load cell on the bar. total is
+// appended as the final field. Returns true only if the device replies with "OK".
 func (l *Leo485) WriteZeros(index int, zeros []float64, total uint64) bool {
 	sb := "O"
 	k := 0
@@ -147,6 +168,10 @@ func (l *Leo485) WriteZeros(index int, zeros []float64, total uint64) bool {
 	return strings.Contains(response, "OK")
 }
 
+// WriteFactors sends a calibration "factors" payload to the bar at index.
+//
+// factors should contain a value for each active load cell on the bar. Returns
+// true only if the device replies with "OK".
 func (l *Leo485) WriteFactors(index int, factors []float64) bool {
 	sb := "X"
 	k := 0
@@ -166,6 +191,7 @@ func (l *Leo485) WriteFactors(index int, factors []float64) bool {
 	return strings.Contains(response, "OK")
 }
 
+// OpenToUpdate puts the device into update/flash mode using the Euler command.
 func (l *Leo485) OpenToUpdate() error {
 	data, err := changeState(l.Serial, []byte(Euler), 1000)
 	if err != nil {
@@ -183,6 +209,8 @@ func (l *Leo485) OpenToUpdate() error {
 	return nil
 }
 
+// Reboot requests the bar at index to reboot and returns true if the device
+// replies with a "Rebooting" message.
 func (l *Leo485) Reboot(index int) bool {
 	cmd := GetCommand(l.Bars[index].ID, []byte("R"))
 	response, err := changeState(l.Serial, cmd, 200)
@@ -245,7 +273,11 @@ func (l *Leo485) ReadFactors(index int) ([]float64, error) {
 		return nil, fmt.Errorf("ReadFactors CRC mismatch: expected=%02X%02X got=%02X%02X raw_hex=%s", calc[0], calc[1], receivedCRC[0], receivedCRC[1], strings.Join(hexParts, " "))
 	}
 
-	// payload starts right after the 2-byte ID (no ASCII pipe expected for binary payloads)
+	// Payload starts right after the 2-byte ID and ends right before the CRC.
+	//
+	// Note: Unlike the ASCII responses validated by checkData (which expect an
+	// extra '|' after the ID), this binary factors response does not include an
+	// ASCII pipe delimiter.
 	payload := raw[2 : rnPos-2]
 	nlcs := l.NLCs
 	expected := 4 * (1 + nlcs) // total + each factor (4 bytes each)
@@ -253,7 +285,8 @@ func (l *Leo485) ReadFactors(index int) ([]float64, error) {
 		return nil, fmt.Errorf("ReadFactors: payload too short: got %d, want %d", len(payload), expected)
 	}
 
-	ofs := 4 // skip totalFactor (first 4 bytes)
+	// payload[0:4] is the totalFactor (float32), which we currently ignore.
+	ofs := 4
 	factors := make([]float64, nlcs)
 	for i := 0; i < nlcs; i++ {
 		if ofs+4 > len(payload) {
@@ -267,6 +300,7 @@ func (l *Leo485) ReadFactors(index int) ([]float64, error) {
 	return factors, nil
 }
 
+// numOfActiveLCs returns the number of set bits in the lcs bitmask.
 func numOfActiveLCs(lcs byte) int {
 	count := 0
 	for i := 0; i < 8; i++ {

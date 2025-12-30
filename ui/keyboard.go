@@ -30,8 +30,10 @@ func NextYN(message string) rune {
 	}
 }
 
-// nextRetryOrExit shows a green message and waits for a single 'R' (restart), 'T' (test) or ESC (exit).
-// Returns the rune pressed: 'R' for restart, 'T' for test, 27 for ESC.
+// NextRetryOrExit shows a green message and waits for a single 'R' (retry),
+// 'T' (test) or ESC (exit).
+//
+// It returns the rune pressed: 'R' for retry, 'T' for test, 27 for ESC.
 func NextRetryOrExit() rune {
 	msg := "\nPress 'R' to Retry, 'T' to Test, <ESC> to exit"
 	fmt.Printf("\033[32m%s\033[0m\n", msg)
@@ -51,7 +53,10 @@ func NextRetryOrExit() rune {
 	}
 }
 
-// nextFlashAction prompts the user after a flash failure: F to retry flash, S to skip, ESC to exit.
+// NextFlashAction prompts the user after a flash failure:
+// - 'F' to retry flashing
+// - 'S' to skip flashing
+// - ESC to exit
 func NextFlashAction() rune {
 	msg := "\nFlash failed. Press 'F' to retry, 'S' to skip flashing, or <ESC> to exit"
 	fmt.Printf("\033[33m%s\033[0m\n", msg)

@@ -6,15 +6,19 @@ import (
 	"strings"
 )
 
+// Vector is a dense length-N vector of float64 values.
 type Vector struct {
 	Length int
 	Values []float64
 }
 
+// NewVector allocates a vector of the given length initialized with zeros.
 func NewVector(length int) *Vector {
 	return &Vector{Length: length, Values: make([]float64, length)}
 }
 
+// NewVectorWithValue allocates a vector of the given length and fills it with
+// val.
 func NewVectorWithValue(length int, val float64) *Vector {
 	v := NewVector(length)
 	for i := range v.Values {
@@ -23,6 +27,7 @@ func NewVectorWithValue(length int, val float64) *Vector {
 	return v
 }
 
+// Norm returns the Euclidean norm of v (\(\sqrt{\sum_i v_i^2}\)).
 func (v *Vector) Norm() float64 {
 	sum := 0.0
 	for _, val := range v.Values {
@@ -31,6 +36,9 @@ func (v *Vector) Norm() float64 {
 	return math.Sqrt(sum)
 }
 
+// Sub returns v - other (element-wise subtraction).
+//
+// The caller must ensure both vectors have the same Length.
 func (v *Vector) Sub(other *Vector) *Vector {
 	result := NewVector(v.Length)
 	for i := range v.Values {
@@ -39,6 +47,11 @@ func (v *Vector) Sub(other *Vector) *Vector {
 	return result
 }
 
+// ToStrings formats the vector for display/logging.
+//
+// The returned strings are intended for UI/log output; the second string is
+// currently unused and always "" (kept for legacy call sites that expect two
+// strings).
 func (v *Vector) ToStrings(title, format string) (string, string) {
 	sb := &strings.Builder{}
 	sb.WriteString(MatrixLine + "\n")
@@ -55,7 +68,10 @@ func (v *Vector) ToStrings(title, format string) (string, string) {
 	return sb.String(), ""
 }
 
-// printVector dumps a trimmed view of a vector for debugging
+// PrintVector prints a trimmed view of a vector for debugging.
+//
+// When debug is true, output is colored (ANSI) to visually distinguish debug
+// vectors.
 func PrintVector(v *Vector, title string, debug bool) {
 	if debug {
 		fmt.Print("\033[33m")

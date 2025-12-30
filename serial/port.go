@@ -17,6 +17,8 @@ import (
 //
 // Fallback behavior:
 // - On Windows, probe COM1..COM64 (legacy behavior) if enumeration fails/returns nothing.
+//
+// It returns "" if no responding device is found.
 func AutoDetectPort(parameters *models.PARAMETERS) string {
 	p, _ := AutoDetectPortTrace(parameters)
 	return p
@@ -24,6 +26,9 @@ func AutoDetectPort(parameters *models.PARAMETERS) string {
 
 // AutoDetectPortTrace is the same as AutoDetectPort, but also returns a trace
 // of what was tried. The server can surface this trace in the web UI.
+//
+// The returned trace is an ordered list of human-readable log lines (already
+// prefixed with "[serial] ...") suitable for printing directly.
 func AutoDetectPortTrace(parameters *models.PARAMETERS) (string, []string) {
 	if parameters == nil || parameters.SERIAL == nil || len(parameters.BARS) == 0 || parameters.BARS[0] == nil {
 		return "", nil
@@ -85,6 +90,9 @@ func AutoDetectPortTrace(parameters *models.PARAMETERS) (string, []string) {
 // It sends the Version ("V") command to the first bar ID and considers the port
 // valid if the response looks like a Version reply. A short settle delay and
 // one retry are used to reduce flakiness right after opening the port.
+//
+// Note: The underlying helpers validate framing/CRC and return an error on
+// malformed responses.
 func TestPort(name string, barID int, baud int) bool {
 	config := &serial.Config{Name: name, Baud: baud, Parity: serial.ParityNone, Size: 8, StopBits: serial.Stop1, ReadTimeout: time.Millisecond * 300}
 	sp, err := serial.OpenPort(config)

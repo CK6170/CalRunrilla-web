@@ -1,3 +1,9 @@
+// Package file provides helpers for persisting configuration, calibration
+// outputs, and debug logs to disk.
+//
+// The project historically used this package as a thin shim around JSON
+// read/write and text append, plus a few convenience type aliases for the
+// shared `models` structs.
 package file
 
 import (
@@ -11,7 +17,8 @@ import (
 	ui "github.com/CK6170/Calrunrilla-go/ui"
 )
 
-// at the exported types in the models package.
+// Re-export core config types from `models` so legacy callers can import `file`
+// and still use PARAMETERS/SERIAL/BAR/etc names.
 type PARAMETERS = models.PARAMETERS
 type SENTINEL = models.SENTINEL
 type VERSION = models.VERSION
@@ -19,7 +26,11 @@ type SERIAL = models.SERIAL
 type BAR = models.BAR
 type LC = models.LC
 
-// persistParameters overwrites original JSON with updated parameters (including detected port)
+// PersistParameters overwrites the JSON file at path with the provided
+// parameters.
+//
+// This is primarily used to persist runtime-updated values (like an auto-detected
+// SERIAL.PORT) back into the on-disk config.
 func PersistParameters(path string, parameters *PARAMETERS) {
 	data, err := json.MarshalIndent(parameters, "", "  ")
 	if err != nil {
@@ -30,6 +41,15 @@ func PersistParameters(path string, parameters *PARAMETERS) {
 		fmt.Println("Cannot write parameters file:", writeErr)
 	}
 }
+
+// SaveToJSON writes a calibrated configuration file to disk.
+//
+// The output JSON is a schema-compatible subset that includes:
+// - SERIAL + BARS (calibration data)
+// - AVG/IGNORE/DEBUG (runtime defaults so the calibrated file is immediately usable)
+//
+// It also writes a sibling `.version` file next to the JSON to record the app
+// version/build without changing the JSON schema.
 func SaveToJSON(file string, parameters *PARAMETERS, appVer string, appBuild string) {
 	// Build a small payload that includes SERIAL, BARS and desired runtime
 	// defaults so the saved _calibrated.json contains AVG, IGNORE and DEBUG.
@@ -63,6 +83,8 @@ func SaveToJSON(file string, parameters *PARAMETERS, appVer string, appBuild str
 	}
 }
 
+// AppendToFile appends content + newline to file, creating it if it does not
+// exist.
 func AppendToFile(file, content string) {
 	f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
@@ -75,6 +97,10 @@ func AppendToFile(file, content string) {
 	}
 }
 
+// RecordData formats vec for display/logging and returns an updated debug string.
+//
+// It prints a human-readable representation to stdout (with color for "Zeros" and
+// "factors") and appends the CSV-ish string returned by vec.ToStrings to debug.
 func RecordData(debug string, vec *matrix.Vector, title, format string) string {
 	text, csv := vec.ToStrings(title, format)
 	// Orange (approx) for zeros and factors always

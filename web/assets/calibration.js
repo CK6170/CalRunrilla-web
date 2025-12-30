@@ -4,6 +4,19 @@ import { apiJSON } from "./lib/api.js";
 import { closeWS, connectWS } from "./lib/ws.js";
 
 /**
+ * Calibration card logic.
+ *
+ * This module drives the calibration workflow in the web UI:
+ * - fetch step plan from the backend
+ * - start sampling per-step (with WS progress updates)
+ * - poll ADC values while idle
+ * - compute zeros/factors, download calibrated JSON, show matrices, and flash
+ *
+ * Exported functions are consumed by `app.js` (navigation/buttons) and the
+ * calibration WebSocket handlers.
+ */
+
+/**
  * Normalize human instructions coming from the backend calibration plan.
  *
  * The goal is to keep the on-screen instructions clean and consistent:

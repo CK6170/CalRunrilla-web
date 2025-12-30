@@ -12,11 +12,15 @@ import (
 	serialpkg "github.com/CK6170/Calrunrilla-go/serial"
 )
 
+// handleTestConfig updates live test-mode configuration (tick rate, ADC timeout,
+// and whether to include debug payloads) while the test loop is running.
 func (s *Server) handleTestConfig(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
 		return
 	}
+	// Body is required and must be valid JSON. This endpoint is intended to be
+	// called while the test loop is running to adjust its cadence/behavior.
 	var req TestConfigRequest
 	if err := s.readJSON(r, &req); err != nil {
 		s.writeJSON(w, 400, APIError{Error: err.Error()})
@@ -28,6 +32,8 @@ func (s *Server) handleTestConfig(w http.ResponseWriter, r *http.Request) {
 		s.writeJSON(w, 400, APIError{Error: "test mode not active"})
 		return
 	}
+	// Use atomics for the hot-path values so the running goroutine can read them
+	// without taking s.dev.mu on every tick.
 	atomic.StoreInt64(&s.dev.testTickMS, int64(req.TickMS))
 	atomic.StoreInt64(&s.dev.testADTimeoutMS, int64(req.ADTimeoutMS))
 	if req.Debug {
@@ -38,6 +44,8 @@ func (s *Server) handleTestConfig(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, 200, map[string]bool{"ok": true})
 }
 
+// handleTestStart starts the background test loop and begins streaming snapshots
+// to the test WebSocket (`/ws/test`).
 func (s *Server) handleTestStart(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
@@ -250,6 +258,8 @@ func (s *Server) handleTestStart(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, 200, map[string]bool{"ok": true})
 }
 
+// handleTestZero re-collects zeros while test mode is active and updates the
+// running loop's zero baseline.
 func (s *Server) handleTestZero(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
@@ -324,6 +334,8 @@ func (s *Server) handleTestZero(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, 200, map[string]bool{"ok": true})
 }
 
+// handleFlashStart starts the background "flash calibrated config" operation
+// and streams progress to the flash WebSocket (`/ws/flash`).
 func (s *Server) handleFlashStart(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)

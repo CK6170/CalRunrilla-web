@@ -22,37 +22,52 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 
+	"os/exec"
+
 	"github.com/CK6170/Calrunrilla-go/internal/server"
 )
 
+// main parses flags, validates the static web directory, then starts the HTTP
+// server.
+//
+// When -open is set (and CALRUNRILLA_NO_OPEN is not), it also attempts to open
+// the UI URL in the default browser.
 func main() {
 	var (
+		// addr is the TCP address the HTTP server will bind to.
 		addr = flag.String("addr", "127.0.0.1:8080", "http listen address")
-		web  = flag.String("web", "./web", "path to web root (index.html)")
+		// web is the directory containing index.html and /assets for the frontend.
+		web = flag.String("web", "./web", "path to web root (index.html)")
+		// open controls whether we attempt to open the UI in the default browser at startup.
 		open = flag.Bool("open", false, "open the web UI in your default browser on startup")
 	)
 	flag.Parse()
 
-	// Resolve web directory to absolute path
+	// Resolve web directory to an absolute path so logging and FileServer behavior
+	// are consistent regardless of the current working directory.
 	webDir, err := filepath.Abs(*web)
 	if err != nil {
 		log.Fatalf("Failed to resolve web directory: %v", err)
 	}
+	// Ensure the webDir exists before starting the server; otherwise the UI will 404.
 	if st, err := os.Stat(webDir); err != nil || !st.IsDir() {
 		log.Fatalf("Web directory does not exist: %s", webDir)
 	}
 
+	// Construct the backend server (HTTP API + WebSocket hubs + static hosting).
 	s := server.New(webDir)
+
+	// Bind the listen address early so we fail fast if the port is in use.
 	ln, err := net.Listen("tcp", *addr)
 	if err != nil {
 		log.Fatalf("Failed to listen on %s: %v", *addr, err)
 	}
 
+	// Build a browser-friendly URL from the listen addr (e.g. 0.0.0.0 -> 127.0.0.1).
 	uiURL := makeUIURL(*addr)
 	log.Printf("Serving on http://%s", *addr)
 	log.Printf("UI:        %s", uiURL)
@@ -64,6 +79,7 @@ func main() {
 		}
 	}
 
+	// Start serving requests (this blocks until the server stops).
 	if err := http.Serve(ln, s.Handler()); err != nil {
 		fmt.Println(err)
 	}

@@ -4,6 +4,15 @@ import { state } from "./lib/state.js";
 import { closeWS, connectWS } from "./lib/ws.js";
 
 /**
+ * Flash card logic.
+ *
+ * This module implements the "flash an already-calibrated JSON" workflow:
+ * - preview zeros/factors from a local file
+ * - upload the file to the backend (in-memory store)
+ * - start flashing and stream progress via WebSocket
+ */
+
+/**
  * Upload a calibrated JSON file and flash it to the device.
  *
  * Flow:

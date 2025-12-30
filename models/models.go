@@ -1,16 +1,29 @@
+// Package models defines the JSON-serialized configuration structures shared
+// between the CalRunrilla tooling and the web server.
+//
+// These types mirror the shape of `config.json` and related payloads exchanged
+// with devices and the web UI.
 package models
 
 import "fmt"
 
-// Constants related to layout
+// Layout/config constants.
 const (
-	MAXLCS   = 4
-	WIDTH    = 21
-	SHIFT    = 14
+	// MAXLCS is the maximum number of load cells per bar supported by the config.
+	MAXLCS = 4
+
+	// WIDTH is the bar width in "segments" used by calibration/test rendering and
+	// index math across the project.
+	WIDTH = 21
+
+	// SHIFT is a legacy constant used when mapping indices into ADC/sample arrays.
+	SHIFT = 14
+
+	// SHIFTIDX is a legacy constant used when mapping indices into ADC/sample arrays.
 	SHIFTIDX = 6
 )
 
-// Enums
+// LMR identifies whether a bar position is Left, Middle, or Right.
 type LMR int
 
 const (
@@ -19,6 +32,7 @@ const (
 	RIGHT
 )
 
+// String implements fmt.Stringer.
 func (l LMR) String() string {
 	switch l {
 	case LEFT:
@@ -32,6 +46,7 @@ func (l LMR) String() string {
 	}
 }
 
+// FB identifies whether a bay is Front or Back.
 type FB int
 
 const (
@@ -39,6 +54,7 @@ const (
 	BACK
 )
 
+// String implements fmt.Stringer.
 func (f FB) String() string {
 	switch f {
 	case FRONT:
@@ -50,6 +66,7 @@ func (f FB) String() string {
 	}
 }
 
+// BAY identifies one of the 8 bays supported by the config/device layout.
 type BAY int
 
 const (
@@ -63,6 +80,7 @@ const (
 	EIGHTH
 )
 
+// String implements fmt.Stringer.
 func (b BAY) String() string {
 	switch b {
 	case FIRST:
@@ -86,7 +104,10 @@ func (b BAY) String() string {
 	}
 }
 
-// Data models
+// PARAMETERS is the primary configuration model (the typical `config.json`).
+//
+// It includes serial parameters, device version metadata, calibration/test
+// parameters, and the bar/load-cell layout.
 type PARAMETERS struct {
 	SERIAL  *SERIAL  `json:"SERIAL"`
 	VERSION *VERSION `json:"VERSION,omitempty"`
@@ -97,29 +118,40 @@ type PARAMETERS struct {
 	BARS    []*BAR   `json:"BARS"`
 }
 
+// SENTINEL is a trimmed model used in some contexts where only serial + bar
+// layout are needed.
 type SENTINEL struct {
 	SERIAL *SERIAL `json:"SERIAL"`
 	BARS   []*BAR  `json:"BARS"`
 }
 
+// VERSION describes the device firmware version.
 type VERSION struct {
 	ID    int `json:"ID"`
 	MAJOR int `json:"MAJOR"`
 	MINOR int `json:"MINOR"`
 }
 
+// SERIAL contains the serial-port connection settings used to communicate with
+// the device.
 type SERIAL struct {
 	PORT     string `json:"PORT"`
 	BAUDRATE int    `json:"BAUDRATE"`
 	COMMAND  string `json:"COMMAND"`
 }
 
+// BAR represents a physical bar, containing one or more load cells (LC).
 type BAR struct {
 	ID  int   `json:"ID"`
 	LCS byte  `json:"LCS"`
 	LC  []*LC `json:"LC,omitempty"`
 }
 
+// LC represents a single load cell's calibration parameters.
+//
+// ZERO is the zero-offset baseline, FACTOR is the scale factor, and IEEE is an
+// optional string rendering of FACTOR in IEEE-754 hex form for firmware flashing
+// workflows.
 type LC struct {
 	ZERO   uint64  `json:"ZERO"`
 	FACTOR float32 `json:"FACTOR"`

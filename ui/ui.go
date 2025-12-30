@@ -1,3 +1,5 @@
+// Package ui provides small terminal helpers used by the CLI calibration/test
+// flows: ANSI-colored printing, screen clearing, and log writer wrappers.
 package ui
 
 import (
@@ -5,10 +7,13 @@ import (
 	"io"
 )
 
-// redWriter wraps an io.Writer and emits red-colored output. Defined at package scope
-// because methods cannot be declared inside functions.
+// RedWriter wraps an io.Writer and emits red-colored output (ANSI).
+//
+// This is typically used to route the standard logger output in a way that is
+// visually distinct from the interactive UI prompts.
 type RedWriter struct{ w io.Writer }
 
+// Write implements io.Writer, wrapping the payload in red ANSI escape codes.
 func (r RedWriter) Write(p []byte) (int, error) {
 	out := append([]byte("\033[31m"), p...)
 	out = append(out, []byte("\033[0m")...)

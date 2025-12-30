@@ -1,3 +1,9 @@
+// Package matrix provides lightweight Matrix/Vector helpers used by the
+// calibration and test pipelines.
+//
+// It intentionally keeps a simple representation (nested slices) for easy
+// marshaling/debugging, while delegating numerically sensitive operations
+// (like pseudo-inverse via SVD) to Gonum when needed.
 package matrix
 
 import (
@@ -8,14 +14,22 @@ import (
 	"gonum.org/v1/gonum/mat"
 )
 
+// EPSILON is a small tolerance used by various numeric comparisons in this
+// package.
 const EPSILON = 1e-15
+
+// MatrixLine is a separator line used by the package's debug/pretty printers.
 const MatrixLine = "------------------------------------------------------------------"
 
+// Matrix is a dense \(rows x cols\) matrix of float64 values.
+//
+// The data is stored row-major in Values, i.e. Values[row][col].
 type Matrix struct {
 	Rows, Cols int
 	Values     [][]float64
 }
 
+// NewMatrix allocates a rows x cols matrix initialized with zeros.
 func NewMatrix(rows, cols int) *Matrix {
 	values := make([][]float64, rows)
 	for i := range values {
@@ -24,6 +38,7 @@ func NewMatrix(rows, cols int) *Matrix {
 	return &Matrix{Rows: rows, Cols: cols, Values: values}
 }
 
+// Norm returns the Frobenius norm of m (\(\sqrt{\sum_{i,j} m_{i,j}^2}\)).
 func (m *Matrix) Norm() float64 {
 	sum := 0.0
 	for i := range m.Values {
@@ -34,6 +49,9 @@ func (m *Matrix) Norm() float64 {
 	return math.Sqrt(sum)
 }
 
+// Sub returns m - other (element-wise subtraction).
+//
+// The caller must ensure the matrices have matching dimensions.
 func (m *Matrix) Sub(other *Matrix) *Matrix {
 	result := NewMatrix(m.Rows, m.Cols)
 	for i := range m.Values {
@@ -44,6 +62,9 @@ func (m *Matrix) Sub(other *Matrix) *Matrix {
 	return result
 }
 
+// MulVector multiplies matrix m by vector v and returns the resulting vector.
+//
+// If dimensions are incompatible (m.Cols != v.Length), it returns nil.
 func (m *Matrix) MulVector(v *Vector) *Vector {
 	if m.Cols != v.Length {
 		return nil
@@ -57,6 +78,13 @@ func (m *Matrix) MulVector(v *Vector) *Vector {
 	return result
 }
 
+// InverseSVD returns the Moore–Penrose pseudoinverse of m computed using SVD.
+//
+// This is robust for non-square or rank-deficient matrices by zeroing small
+// singular values using a tolerance derived from matrix size and the largest
+// singular value.
+//
+// It returns nil if SVD factorization fails.
 func (m *Matrix) InverseSVD() *Matrix {
 	a := mat.NewDense(m.Rows, m.Cols, nil)
 	for i := 0; i < m.Rows; i++ {
@@ -108,16 +136,26 @@ func (m *Matrix) InverseSVD() *Matrix {
 	return pinv
 }
 
+// GetRow returns a copy of row i as a Vector.
 func (m *Matrix) GetRow(i int) *Vector {
 	v := NewVector(m.Cols)
 	copy(v.Values, m.Values[i])
 	return v
 }
 
+// SetRow overwrites row i with values from v.
 func (m *Matrix) SetRow(i int, v *Vector) {
 	copy(m.Values[i], v.Values)
 }
 
+// ToStrings formats the matrix for display/logging.
+//
+// The returned strings are intended for UI/log output; the second string is
+// currently unused and always "" (kept for legacy call sites that expect two
+// strings).
+//
+// Note: The current implementation uses a fixed "%10.0f" format and ignores
+// the provided format parameter.
 func (m *Matrix) ToStrings(title, format string) (string, string) {
 	sb := &strings.Builder{}
 	sb.WriteString(MatrixLine + "\n")
@@ -132,7 +170,10 @@ func (m *Matrix) ToStrings(title, format string) (string, string) {
 	return sb.String(), ""
 }
 
-// printMatrix dumps the full matrix (may be large). For debugging only.
+// PrintMatrix prints a trimmed view of a matrix for debugging.
+//
+// When debug is true, output is colored (ANSI) to visually distinguish debug
+// matrices.
 func PrintMatrix(m *Matrix, title string, debug bool) {
 	// Yellow for debug matrices
 	if debug {

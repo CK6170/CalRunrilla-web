@@ -9,8 +9,12 @@ import (
 	goserial "github.com/tarm/serial"
 )
 
-// openBars opens the serial port and constructs a Leo485 without using serial.NewLeo485
-// (which log.Fatal's on error).
+// openBars opens the configured serial port and returns a ready-to-use Leo485
+// device wrapper.
+//
+// This intentionally does NOT call `serial.NewLeo485`, because the original
+// helper uses log.Fatal on errors; in the web server we need to return errors to
+// HTTP handlers instead of exiting the process.
 func openBars(ser *models.SERIAL, bars []*models.BAR) (*serialpkg.Leo485, error) {
 	if ser == nil {
 		return nil, fmt.Errorf("missing SERIAL")
@@ -54,6 +58,7 @@ func openBars(ser *models.SERIAL, bars []*models.BAR) (*serialpkg.Leo485, error)
 	return l, nil
 }
 
+// countActiveLCs returns the number of set bits in the lcs bitmask.
 func countActiveLCs(lcs byte) int {
 	n := 0
 	for i := 0; i < 8; i++ {
@@ -63,4 +68,3 @@ func countActiveLCs(lcs byte) int {
 	}
 	return n
 }
-

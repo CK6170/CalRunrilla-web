@@ -4,6 +4,17 @@ import { apiJSON } from "./lib/api.js";
 import { closeWS, connectWS } from "./lib/ws.js";
 
 /**
+ * Test mode (live weights) logic.
+ *
+ * This module manages the Test card:
+ * - starts/stops the backend test loop
+ * - updates test configuration live (tick/timeout/debug)
+ * - renders snapshot payloads (per-bar/per-LC weights + totals)
+ *
+ * Exported functions are called from `app.js` UI handlers.
+ */
+
+/**
  * Update the compact "zeros / rate" info line shown above the live table.
  *
  * The line merges:

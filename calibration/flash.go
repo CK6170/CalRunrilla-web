@@ -14,7 +14,10 @@ import (
 	ui "github.com/CK6170/Calrunrilla-go/ui"
 )
 
-// flashOnly loads the parameters and performs a headless flash of bar parameters.
+// FlashOnly loads parameters and performs a headless flash of bar parameters.
+//
+// This is intended for non-interactive usage when a calibrated config is already
+// present and you only want to push zeros/factors to the device.
 func FlashOnly(configPath string) {
 	jsonData, err := os.ReadFile(configPath)
 	if err != nil {
@@ -44,6 +47,11 @@ func FlashOnly(configPath string) {
 	}
 }
 
+// flashParameters writes zeros and factors to each bar and reboots.
+//
+// This is the shared implementation used by FlashOnly and the interactive
+// calibration flow. It performs the Euler handshake to enter update mode, waits
+// until all bars report "Enter", then flashes zeros and factors with retries.
 func flashParameters(bars *serialpkg.Leo485, parameters *models.PARAMETERS) error {
 	if len(parameters.BARS) == 0 || len(parameters.BARS[0].LC) == 0 {
 		return nil
@@ -211,6 +219,8 @@ func flashParameters(bars *serialpkg.Leo485, parameters *models.PARAMETERS) erro
 	return nil
 }
 
+// activeLCs returns a compact decimal representation of the active load cells
+// indicated by bar.LCS (e.g. LCS bits 0 and 2 -> 13).
 func activeLCs(bar *models.BAR, maxLCs int) int {
 	n := 0
 	for i := 0; i < maxLCs; i++ {

@@ -6,6 +6,9 @@ import (
 	"github.com/eiannone/keyboard"
 )
 
+// Windows keypress implementation backed by github.com/eiannone/keyboard.
+//
+// The functions in this file provide single-key input without requiring Enter.
 // Singleton buffered channel and one reader goroutine to avoid multiple opens
 // and to make DrainKeys non-blocking and reliable across phases.
 var (

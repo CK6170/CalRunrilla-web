@@ -14,6 +14,13 @@ func showADCLabel(bars *serialpkg.Leo485, message string, finalLabel string) ([]
 	return manipulateADC(bars, finalLabel)
 }
 
+// manipulateADC runs the interactive sampling loop used during CLI calibration.
+//
+// It operates as a small state machine:
+// - live: show live ADC values and wait for 'C' to start sampling (ESC cancels)
+// - ignoring: discard IGNORE samples (warm-up)
+// - averaging: collect AVG samples and compute per-LC averages
+// - finished: print final averages once and return them as a flattened slice
 func manipulateADC(bars *serialpkg.Leo485, finalLabel string) ([]int64, bool) {
 	// Print instruction once
 	fmt.Println()
@@ -122,6 +129,7 @@ func manipulateADC(bars *serialpkg.Leo485, finalLabel string) ([]int64, bool) {
 	}
 }
 
+// calculateFinalAverages computes per-LC averages for each bar.
 func calculateFinalAverages(samples [][][]int64, nlcs int) [][]int64 {
 	finalAverages := make([][]int64, len(samples))
 	for i, barSamples := range samples {

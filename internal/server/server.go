@@ -25,11 +25,11 @@ type DeviceSession struct {
 	params   *models.PARAMETERS
 	bars     *serialpkg.Leo485
 
-	// One active operation at a time
+	// One active operation at a time (calibration/test/flash).
 	opCancel context.CancelFunc
 	opKind   string
 
-	// calibration accumulation
+	// Calibration accumulation and progress.
 	calMu       sync.Mutex
 	calAd0      *matrix.Matrix
 	calAdv      *matrix.Matrix
@@ -59,6 +59,10 @@ type DeviceSession struct {
 	testDebug       int32 // 0/1
 }
 
+// Server is the main HTTP+WebSocket backend for the local CalRunrilla web UI.
+//
+// It is intended to be run as a local-only service (no auth) and keeps runtime
+// state in memory.
 type Server struct {
 	mux *http.ServeMux
 
@@ -151,12 +155,14 @@ func New(webDir string) *Server {
 // Handler returns the server's HTTP handler (router).
 func (s *Server) Handler() http.Handler { return s.mux }
 
+// writeJSON writes v as JSON with the given HTTP status.
 func (s *Server) writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// readJSON decodes a JSON request body into v, limiting input size.
 func (s *Server) readJSON(r *http.Request, v interface{}) error {
 	defer r.Body.Close()
 	b, err := io.ReadAll(io.LimitReader(r.Body, 2<<20))
@@ -166,6 +172,7 @@ func (s *Server) readJSON(r *http.Request, v interface{}) error {
 	return json.Unmarshal(b, v)
 }
 
+// handleHealth is a simple healthcheck endpoint.
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
@@ -174,14 +181,20 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, 200, HealthResponse{OK: true, Timestamp: time.Now()})
 }
 
+// handleUploadConfig accepts an uploaded config JSON and stores it in memory.
 func (s *Server) handleUploadConfig(w http.ResponseWriter, r *http.Request) {
 	s.handleUpload(w, r, kindConfig)
 }
 
+// handleUploadCalibrated accepts an uploaded calibrated JSON and stores it in memory.
 func (s *Server) handleUploadCalibrated(w http.ResponseWriter, r *http.Request) {
 	s.handleUpload(w, r, kindCalibrated)
 }
 
+// handleUpload is the shared implementation behind the upload endpoints.
+//
+// It parses the multipart form, reads the file field, validates it as
+// models.PARAMETERS, then stores both the raw JSON and parsed struct in ConfigStore.
 func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request, kind configKind) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
@@ -215,6 +228,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request, kind confi
 	s.writeJSON(w, 200, UploadResponse{ConfigID: rec.ID, Kind: string(kind)})
 }
 
+// fileFromMultipart retrieves an uploaded file from a multipart/form-data request.
 func fileFromMultipart(r *http.Request, field string) (multipart.File, *multipart.FileHeader, error) {
 	if err := r.ParseMultipartForm(8 << 20); err != nil {
 		return nil, nil, err
@@ -226,6 +240,8 @@ func fileFromMultipart(r *http.Request, field string) (multipart.File, *multipar
 	return f, hdr, nil
 }
 
+// decodeParameters validates raw JSON as a PARAMETERS payload and applies small
+// defaults used by the server.
 func decodeParameters(raw []byte) (*models.PARAMETERS, error) {
 	var p models.PARAMETERS
 	if err := json.Unmarshal(raw, &p); err != nil {
@@ -243,6 +259,10 @@ func decodeParameters(raw []byte) (*models.PARAMETERS, error) {
 	return &p, nil
 }
 
+// updateRawSerialPort updates SERIAL.PORT in a raw JSON config blob.
+//
+// This is used when auto-detection picks a port and we want to persist that
+// port into the stored raw JSON without re-encoding the entire struct.
 func updateRawSerialPort(raw []byte, newPort string) ([]byte, error) {
 	if len(raw) == 0 {
 		return nil, fmt.Errorf("empty json")
@@ -418,6 +438,10 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleDisconnect implements POST /api/disconnect.
+//
+// It cancels any running operation (calibration/test/flash) and closes the
+// underlying serial connection.
 func (s *Server) handleDisconnect(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
@@ -430,6 +454,10 @@ func (s *Server) handleDisconnect(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, 200, map[string]bool{"ok": true})
 }
 
+// handleStopOp implements POST /api/*/stop.
+//
+// It cancels the current background operation but intentionally does not
+// disconnect the device session.
 func (s *Server) handleStopOp(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
@@ -441,6 +469,8 @@ func (s *Server) handleStopOp(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, 200, map[string]bool{"ok": true})
 }
 
+// cancelLocked cancels the current operation and clears the op state.
+// Caller must hold d.mu.
 func (d *DeviceSession) cancelLocked() {
 	if d.opCancel != nil {
 		d.opCancel()
@@ -449,6 +479,8 @@ func (d *DeviceSession) cancelLocked() {
 	}
 }
 
+// disconnectLocked closes the active serial connection and clears session state.
+// Caller must hold d.mu.
 func (d *DeviceSession) disconnectLocked() error {
 	if d.bars != nil {
 		_ = d.bars.Close()
@@ -459,6 +491,7 @@ func (d *DeviceSession) disconnectLocked() error {
 	return nil
 }
 
+// handleCalPlan implements GET /api/calibration/plan and returns the UI step list.
 func (s *Server) handleCalPlan(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
@@ -489,6 +522,12 @@ func (s *Server) handleCalPlan(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, 200, CalPlanResponse{Steps: out})
 }
 
+// handleCalStartStep implements POST /api/calibration/startStep.
+//
+// It starts a background sampling loop for the selected step and streams
+// progress to the calibration WebSocket (`/ws/calibration`). While sampling is
+// running, /api/calibration/adc serves the last stored snapshot to avoid serial
+// conflicts from concurrent reads.
 func (s *Server) handleCalStartStep(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
@@ -618,6 +657,10 @@ func (s *Server) handleCalStartStep(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, 200, map[string]bool{"ok": true})
 }
 
+// handleCalCompute implements POST /api/calibration/compute.
+//
+// It computes zeros/factors from the accumulated calibration samples, stores a
+// calibrated config record, and returns its ID for download/flash.
 func (s *Server) handleCalCompute(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
@@ -677,6 +720,10 @@ func (s *Server) handleCalCompute(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, 200, CalComputeResponse{CalibratedID: rec.ID})
 }
 
+// handleCalFlash implements POST /api/calibration/flash.
+//
+// It starts a background flash operation (write zeros/factors + reboot) using
+// the most recently computed calibrated config.
 func (s *Server) handleCalFlash(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
@@ -725,6 +772,8 @@ func (s *Server) handleCalFlash(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, 200, map[string]bool{"ok": true})
 }
 
+// handleCalMatrices implements GET /api/calibration/matrices and returns the
+// currently accumulated matrices (ad0/adv/add) for debugging/inspection.
 func (s *Server) handleCalMatrices(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
@@ -995,6 +1044,10 @@ func (s *Server) handleCalMatrices(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleCalADC implements GET /api/calibration/adc.
+//
+// During sampling, it returns the last stored snapshot. Otherwise it performs a
+// best-effort single read of all bars for UI display.
 func (s *Server) handleCalADC(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
@@ -1059,6 +1112,10 @@ func (s *Server) handleCalADC(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// encodeCalibratedJSON encodes a schema-compatible calibrated JSON payload.
+//
+// The server intentionally writes a subset so the downloaded file is directly
+// usable while keeping the schema stable.
 func encodeCalibratedJSON(p *models.PARAMETERS) ([]byte, error) {
 	payload := struct {
 		SERIAL *models.SERIAL `json:"SERIAL"`
@@ -1076,6 +1133,8 @@ func encodeCalibratedJSON(p *models.PARAMETERS) ([]byte, error) {
 	return json.MarshalIndent(payload, "", "  ")
 }
 
+// handleDownload implements GET /api/download and returns a stored JSON record
+// as an attachment.
 func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
